@@ -4,12 +4,8 @@
 #
 # This is the single source of truth for all research parameters.
 #
-# IMPORTANT: All values here are validated at startup by
-# src/crypto_research/config/schema.py using Pydantic v2.
-# Invalid values will stop execution immediately.
-#
-# IMPORTANT: Do NOT hard-code research parameters in Python modules.
-# All configurable values must live here.
+# All values are validated at startup by src/crypto_research/config/schema.py
+# Invalid values will stop execution immediately — no fallbacks.
 #
 # For documentation on each section, see config/README.md
 
@@ -20,23 +16,18 @@ project:
 research:
   market: crypto
   data_source: binance
-  # Note: Actual Binance data ingestion is implemented in Prompt 02.
-  # In Prompt 01, this is configuration-only.
 
 # ── Assets ─────────────────────────────────────────────────────────────────
-# Initial research universe.
-# Add new assets here — do NOT modify Python source to add assets.
+# Initial research universe. Add new assets here — never in Python source.
 #
-# NOTE: Only include liquid perpetual futures pairs that exist on Binance.
-# NOTE: Survivorship bias — the research universe must be chosen carefully.
-#       Assets added post-hoc based on known performance is data snooping.
+# SURVIVORSHIP BIAS WARNING: Only include assets whose listing dates
+# are known and respected by the ingestion pipeline.
 assets:
   - BTCUSDT
   - ETHUSDT
   - SOLUSDT
 
 # ── Timeframes ──────────────────────────────────────────────────────────────
-# Timeframes to include in research experiments.
 # Valid values: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h
 timeframes:
   - 1m
@@ -44,45 +35,66 @@ timeframes:
   - 15m
   - 1h
 
-# ── Risk Management ─────────────────────────────────────────────────────────
-# NOTE: These parameters are configuration placeholders.
-# Actual risk management logic is implemented in Prompt 05.
-#
-# DO NOT treat these values as validated research assumptions.
-# They are starting points for future investigation.
+# ── Data Ingestion (Prompt 02) ───────────────────────────────────────────────
+data:
+  # Market type. 'futures' uses Binance USDT-margined perpetual contracts.
+  # Valid values: 'futures', 'spot'
+  market_type: futures
+
+  # =========================================================================
+  # FULL HISTORICAL RESEARCH RANGE
+  # =========================================================================
+  # These dates define the COMPLETE historical dataset for research.
+  #
+  # ⚠️  NOTE FOR INITIAL SETUP:
+  #     The validation notebook (02_binance_data_ingestion.ipynb) uses a
+  #     SHORT DEMO RANGE (last 30 days) to run quickly during acceptance
+  #     testing. The dates below are the TARGET full-research range.
+  #
+  # 🔄  HOW TO DOWNLOAD THE FULL RANGE:
+  #     1. Ensure these dates cover the period you want to research.
+  #     2. Run the ingestion script directly (not the notebook):
+  #            python3 -m crypto_research.data.ingestion
+  #        Or call DataIngestionPipeline.run() with use_full_range=True.
+  #     3. Expect ~15-25 minutes per symbol for 1m data over 2+ years.
+  #
+  # SOLUSDT listing date on Binance Futures: September 2020.
+  # ETHUSDT listing date on Binance Futures: September 2019.
+  # BTCUSDT listing date on Binance Futures: September 2019.
+  # Requesting data before listing returns empty → recorded as-is, not filled.
+  start_date: "2024-01-01"
+  end_date: "2026-09-01"
+  # =========================================================================
+
+  # Storage directories (relative to project root)
+  raw_dir: data/raw
+  processed_dir: data/processed
+  metadata_dir: data/metadata
+
+  # API behavior
+  # Milliseconds between requests — Binance Futures allows 2400 req/min,
+  # each klines call = 10 weight. 250ms gives ~240 req/min (well within limits).
+  request_delay_ms: 250
+  max_retries: 3
+  retry_delay_s: 5
+
+  # Schema version — increment when the canonical Parquet schema changes
+  schema_version: "1.0"
+
+# ── Risk Management (Prompt 05) ─────────────────────────────────────────────
 risk:
-  # Initial research hypothesis: 1R risk for 3R reward.
-  # This is a hypothesis, not a guaranteed outcome.
   risk_reward_ratio: 3.0
-
-  # Maximum capital to risk on a single trade (as % of total capital).
   risk_per_trade_pct: 1.0
-
-  # Maximum number of simultaneously open positions across all assets/strategies.
   max_concurrent_positions: 5
-
-  # Daily loss limit (as % of capital). Stops new position opening when reached.
   max_daily_loss_pct: 3.0
-
-  # Daily profit target (as % of capital). Optional — null disables.
-  # When reached, no new positions are opened for the rest of the day.
   daily_profit_target_pct: 2.0
 
-# ── Execution Simulation ─────────────────────────────────────────────────────
-# NOTE: Both values are null in Prompt 01.
-# Execution simulation engine is implemented in Prompt 03.
-#
-# fee_rate: Trading fee as a fraction (e.g. 0.001 = 0.1%).
-#           Set to null until Prompt 03. Setting it now would be premature.
-# slippage_model: Identifier for the slippage model.
-#                 Options (future): 'none', 'fixed', 'percentage', 'market_impact'
+# ── Execution Simulation (Prompt 03) ─────────────────────────────────────────
 execution:
   fee_rate: null
   slippage_model: null
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging:
-  # Log level: DEBUG, INFO, WARNING, ERROR
   level: INFO
-  # Log format: 'console' (colored, human-readable) or 'structured' (JSON)
   format: console

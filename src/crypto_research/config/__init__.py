@@ -7,6 +7,7 @@ from crypto_research.config.loader import (
     load_default_config,
 )
 from crypto_research.config.schema import (
+    DataConfig,
     ExecutionConfig,
     LoggingConfig,
     ProjectConfig,
@@ -23,6 +24,7 @@ __all__ = [
     "load_config",
     "load_default_config",
     # Schema
+    "DataConfig",
     "ExecutionConfig",
     "LoggingConfig",
     "ProjectConfig",

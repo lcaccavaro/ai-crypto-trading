@@ -15,6 +15,10 @@ dependencies = [
     "pyyaml>=6.0",
     "structlog>=24.1",
     "rich>=13.7",
+    # Prompt 02: data ingestion
+    "pandas>=2.2",
+    "pyarrow>=16.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]

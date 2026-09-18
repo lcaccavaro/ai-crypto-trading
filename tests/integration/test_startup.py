@@ -55,6 +55,11 @@ timeframes:
   - 15m
   - 1h
 
+data:
+  market_type: futures
+  start_date: "2024-01-01"
+  end_date: "2024-03-01"
+
 risk:
   risk_reward_ratio: 3.0
   risk_per_trade_pct: 1.0

@@ -109,3 +109,19 @@ class ReproducibilityError(CryptoResearchError):
 
     Execution MUST stop when this is raised.
     """
+
+
+class DataIngestionError(CryptoResearchError):
+    """
+    Raised when data download or network communication fails.
+
+    Examples:
+        - HTTP error from Binance API (4xx, 5xx).
+        - Connection timeout or DNS failure.
+        - Rate-limit exceeded after all retries exhausted.
+        - Malformed or unexpected API response format.
+        - Checksum mismatch on a downloaded file.
+
+    Execution MUST stop when this is raised.
+    No fallback to synthetic or cached data is permitted.
+    """

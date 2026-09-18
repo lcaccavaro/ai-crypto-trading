@@ -15,11 +15,14 @@ Design decisions:
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from crypto_research.core.domain import Timeframe
+
+_VALID_MARKET_TYPES = {"futures", "spot"}
 
 
 class ProjectConfig(BaseModel):
@@ -38,6 +41,99 @@ class ResearchConfig(BaseModel):
 
     market: str = Field(..., description="Market type, e.g. 'crypto'")
     data_source: str = Field(..., description="Primary data source, e.g. 'binance'")
+
+
+class DataConfig(BaseModel):
+    """
+    Data ingestion configuration for Prompt 02.
+
+    Controls which market type is used, the historical date range,
+    storage directories, and API behavior.
+
+    NOTE on date range:
+        start_date / end_date define the FULL research period you eventually
+        want to build. For the initial validation notebook a shorter demo
+        period is used (see notebooks/02_binance_data_ingestion.ipynb).
+        When you are ready to download the full historical dataset,
+        set start_date and end_date in config.yaml and re-run the pipeline.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    market_type: str = Field(
+        ...,
+        description="Exchange market type: 'futures' or 'spot'",
+    )
+    start_date: str = Field(
+        ...,
+        description="Start date for full historical download (ISO format: YYYY-MM-DD)",
+    )
+    end_date: str = Field(
+        ...,
+        description="End date for full historical download (ISO format: YYYY-MM-DD)",
+    )
+    raw_dir: str = Field(
+        default="data/raw",
+        description="Directory for raw downloaded data",
+    )
+    processed_dir: str = Field(
+        default="data/processed",
+        description="Directory for canonical Parquet datasets",
+    )
+    metadata_dir: str = Field(
+        default="data/metadata",
+        description="Directory for dataset metadata and manifests",
+    )
+    request_delay_ms: int = Field(
+        default=250,
+        ge=0,
+        description="Milliseconds to wait between API requests (rate-limit safety)",
+    )
+    max_retries: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Maximum retry attempts for transient API failures",
+    )
+    retry_delay_s: int = Field(
+        default=5,
+        ge=1,
+        description="Seconds to wait between retries",
+    )
+    schema_version: str = Field(
+        default="1.0",
+        description="Dataset schema version (increment when canonical schema changes)",
+    )
+
+    @field_validator("market_type")
+    @classmethod
+    def validate_market_type(cls, v: str) -> str:
+        if v not in _VALID_MARKET_TYPES:
+            raise ValueError(
+                f"Invalid market_type '{v}'. Must be one of {_VALID_MARKET_TYPES}"
+            )
+        return v
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(
+                f"Invalid date '{v}'. Must be ISO format YYYY-MM-DD."
+            ) from None
+        return v
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "DataConfig":
+        start = date.fromisoformat(self.start_date)
+        end = date.fromisoformat(self.end_date)
+        if end <= start:
+            raise ValueError(
+                f"end_date ({self.end_date}) must be after start_date ({self.start_date})"
+            )
+        return self
 
 
 class RiskConfig(BaseModel):
@@ -159,6 +255,7 @@ class ProjectConfiguration(BaseModel):
         min_length=1,
         description="List of timeframes to include in research",
     )
+    data: DataConfig
     risk: RiskConfig
     execution: ExecutionConfig
     logging: LoggingConfig

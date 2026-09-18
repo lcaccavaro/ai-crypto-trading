@@ -34,6 +34,11 @@ VALID_CONFIG_DATA = {
     "research": {"market": "crypto", "data_source": "binance"},
     "assets": ["BTCUSDT", "ETHUSDT"],
     "timeframes": ["1m", "5m"],
+    "data": {
+        "market_type": "futures",
+        "start_date": "2024-01-01",
+        "end_date": "2024-03-01",
+    },
     "risk": {
         "risk_reward_ratio": 3.0,
         "risk_per_trade_pct": 1.0,
