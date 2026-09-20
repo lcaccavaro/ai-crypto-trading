@@ -24,31 +24,13 @@ import yaml
 from crypto_research.config.schema import ProjectConfiguration
 from crypto_research.core.exceptions import ResearchRunError
 from crypto_research.research.run_manager import RunManager
+from tests.fixtures import VALID_CONFIG
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-VALID_CONFIG_DATA = {
-    "project": {"name": "test_lab", "version": "1.0.0"},
-    "research": {"market": "crypto", "data_source": "binance"},
-    "assets": ["BTCUSDT", "ETHUSDT"],
-    "timeframes": ["1m", "5m"],
-    "data": {
-        "market_type": "futures",
-        "start_date": "2024-01-01",
-        "end_date": "2024-03-01",
-    },
-    "risk": {
-        "risk_reward_ratio": 3.0,
-        "risk_per_trade_pct": 1.0,
-        "max_concurrent_positions": 5,
-        "max_daily_loss_pct": 3.0,
-        "daily_profit_target_pct": None,
-    },
-    "execution": {"fee_rate": None, "slippage_model": None},
-    "logging": {"level": "INFO", "format": "console"},
-}
+VALID_CONFIG_DATA = VALID_CONFIG.copy()
 
 RUN_ID_PATTERN = re.compile(r"^RUN_\d{8}_\d{6}_[0-9a-f]{6}$")
 

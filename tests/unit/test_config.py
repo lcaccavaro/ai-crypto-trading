@@ -13,6 +13,7 @@ Tests:
     - config_to_dict() produces a serializable dict.
 """
 
+import copy
 import tempfile
 from pathlib import Path
 
@@ -21,31 +22,7 @@ import yaml
 
 from crypto_research.config.loader import config_to_dict, load_config
 from crypto_research.core.exceptions import ConfigurationError
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-VALID_CONFIG: dict = {
-    "project": {"name": "test_lab", "version": "1.0.0"},
-    "research": {"market": "crypto", "data_source": "binance"},
-    "assets": ["BTCUSDT", "ETHUSDT"],
-    "timeframes": ["1m", "5m", "1h"],
-    "data": {
-        "market_type": "futures",
-        "start_date": "2024-01-01",
-        "end_date": "2024-03-01",
-    },
-    "risk": {
-        "risk_reward_ratio": 3.0,
-        "risk_per_trade_pct": 1.0,
-        "max_concurrent_positions": 5,
-        "max_daily_loss_pct": 3.0,
-        "daily_profit_target_pct": 2.0,
-    },
-    "execution": {"fee_rate": None, "slippage_model": None},
-    "logging": {"level": "INFO", "format": "console"},
-}
+from tests.fixtures import VALID_CONFIG
 
 
 def write_config(tmp_path: Path, data: dict) -> Path:
@@ -85,12 +62,39 @@ class TestValidConfig:
         assert config.risk.risk_reward_ratio == 3.0
         assert config.risk.risk_per_trade_pct == 1.0
         assert config.risk.max_concurrent_positions == 5
+        # New Prompt 03 risk fields
+        assert config.risk.max_total_exposure_pct == 50.0
+        assert config.risk.max_asset_exposure_pct == 20.0
+        assert config.risk.daily_loss_limit_pct == 3.0
 
-    def test_execution_nulls_allowed(self, tmp_path):
+    def test_execution_config_loaded(self, tmp_path):
+        """Execution config should have all Prompt 03 fields."""
         path = write_config(tmp_path, VALID_CONFIG)
         config = load_config(path)
-        assert config.execution.fee_rate is None
-        assert config.execution.slippage_model is None
+        assert config.execution.slippage_bps == 2.0
+        assert config.execution.spread_bps == 1.0
+        assert config.execution.intrabar_fill_policy == "stop_first"
+        assert config.execution.gap_policy == "fill_at_open"
+        assert config.execution.allow_same_close_execution is False
+
+    def test_costs_config_loaded(self, tmp_path):
+        path = write_config(tmp_path, VALID_CONFIG)
+        config = load_config(path)
+        assert config.costs.taker_fee_rate == 0.0005
+        assert config.costs.maker_fee_rate == 0.0002
+
+    def test_capital_config_loaded(self, tmp_path):
+        path = write_config(tmp_path, VALID_CONFIG)
+        config = load_config(path)
+        assert config.capital.initial_balance == 10000.0
+        assert config.capital.risk_per_trade_pct == 1.0
+
+    def test_backtest_config_loaded(self, tmp_path):
+        path = write_config(tmp_path, VALID_CONFIG)
+        config = load_config(path)
+        assert config.backtest.start_date == "2024-01-01"
+        assert config.backtest.end_date == "2024-02-01"
+        assert "BTCUSDT" in config.backtest.symbols
 
     def test_config_to_dict_is_serializable(self, tmp_path):
         import json
@@ -141,7 +145,6 @@ class TestFileErrors:
 
 class TestMissingFields:
     def _config_without(self, key: str) -> dict:
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         del cfg[key]
         return cfg
@@ -166,8 +169,22 @@ class TestMissingFields:
         with pytest.raises(ConfigurationError):
             load_config(path)
 
+    def test_missing_backtest_raises(self, tmp_path):
+        path = write_config(tmp_path, self._config_without("backtest"))
+        with pytest.raises(ConfigurationError):
+            load_config(path)
+
+    def test_missing_costs_raises(self, tmp_path):
+        path = write_config(tmp_path, self._config_without("costs"))
+        with pytest.raises(ConfigurationError):
+            load_config(path)
+
+    def test_missing_capital_raises(self, tmp_path):
+        path = write_config(tmp_path, self._config_without("capital"))
+        with pytest.raises(ConfigurationError):
+            load_config(path)
+
     def test_empty_assets_list_raises(self, tmp_path):
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         cfg["assets"] = []
         path = write_config(tmp_path, cfg)
@@ -182,7 +199,6 @@ class TestMissingFields:
 
 class TestInvalidValues:
     def test_invalid_timeframe_raises(self, tmp_path):
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         cfg["timeframes"] = ["1m", "99x"]  # 99x is not valid
         path = write_config(tmp_path, cfg)
@@ -190,7 +206,6 @@ class TestInvalidValues:
             load_config(path)
 
     def test_duplicate_assets_raises(self, tmp_path):
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         cfg["assets"] = ["BTCUSDT", "BTCUSDT"]
         path = write_config(tmp_path, cfg)
@@ -198,7 +213,6 @@ class TestInvalidValues:
             load_config(path)
 
     def test_negative_risk_reward_raises(self, tmp_path):
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         cfg["risk"]["risk_reward_ratio"] = -1.0
         path = write_config(tmp_path, cfg)
@@ -206,7 +220,6 @@ class TestInvalidValues:
             load_config(path)
 
     def test_invalid_log_level_raises(self, tmp_path):
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         cfg["logging"]["level"] = "VERBOSE"  # not a valid level
         path = write_config(tmp_path, cfg)
@@ -215,9 +228,22 @@ class TestInvalidValues:
 
     def test_extra_unknown_key_raises(self, tmp_path):
         """Extra keys must not be silently ignored — extra='forbid'."""
-        import copy
         cfg = copy.deepcopy(VALID_CONFIG)
         cfg["unexpected_top_level_key"] = "should_fail"
+        path = write_config(tmp_path, cfg)
+        with pytest.raises(ConfigurationError):
+            load_config(path)
+
+    def test_negative_initial_balance_raises(self, tmp_path):
+        cfg = copy.deepcopy(VALID_CONFIG)
+        cfg["capital"]["initial_balance"] = -500.0
+        path = write_config(tmp_path, cfg)
+        with pytest.raises(ConfigurationError):
+            load_config(path)
+
+    def test_invalid_intrabar_policy_raises(self, tmp_path):
+        cfg = copy.deepcopy(VALID_CONFIG)
+        cfg["execution"]["intrabar_fill_policy"] = "random_guess"
         path = write_config(tmp_path, cfg)
         with pytest.raises(ConfigurationError):
             load_config(path)

@@ -81,18 +81,93 @@ data:
   # Schema version — increment when the canonical Parquet schema changes
   schema_version: "1.0"
 
-# ── Risk Management (Prompt 05) ─────────────────────────────────────────────
-risk:
-  risk_reward_ratio: 3.0
-  risk_per_trade_pct: 1.0
-  max_concurrent_positions: 5
-  max_daily_loss_pct: 3.0
-  daily_profit_target_pct: 2.0
+# ── Backtest Engine (Prompt 03) ─────────────────────────────────────────────
+#
+# IMPORTANT: backtest.start_date / end_date must fall within the range of
+# data actually downloaded by the ingestion pipeline. The engine will fail
+# loudly if the requested range is not available.
+backtest:
+  # Date range for the backtest run (ISO format: YYYY-MM-DD)
+  start_date: "2026-08-19"
+  end_date: "2026-09-17"
+
+  # Assets and timeframes to include in this backtest run.
+  # Must be a subset of the 'assets' and 'timeframes' lists above.
+  symbols:
+    - BTCUSDT
+  timeframes:
+    - 15m
 
 # ── Execution Simulation (Prompt 03) ─────────────────────────────────────────
+#
+# Execution model controls how simulated orders are filled.
+#
+# Signal timing semantics:
+#   A signal generated using candle C's close price is NOT executed at C's
+#   close. The earliest execution is the OPEN of the next candle (C+1).
+#   This is the default. Set allow_same_close_execution: true to change this
+#   (not recommended — it introduces look-ahead bias at OHLC resolution).
+#
+# Intrabar fill policy (when both stop AND target touched in same candle):
+#   stop_first      — Assume stop is hit first (conservative, default)
+#   target_first    — Assume target is hit first (optimistic)
+#   reject_ambiguous — Reject ambiguous candles, record as neither
+#
+# Gap policy (when price gaps beyond stop or target between candles):
+#   fill_at_open    — Fill at the candle's open price (default, realistic)
+#   fill_at_level   — Fill at the stop/target level (optimistic, unrealistic)
 execution:
-  fee_rate: null
-  slippage_model: null
+  order_model: market                   # 'market' only in Prompt 03
+  slippage_bps: 2                       # Slippage in basis points per side
+  spread_bps: 1                         # Half-spread assumption in basis points
+  intrabar_fill_policy: stop_first      # Conservative default
+  gap_policy: fill_at_open              # Realistic gap fill
+  allow_same_close_execution: false     # Must be false to avoid look-ahead
+
+# ── Trading Costs (Prompt 03) ─────────────────────────────────────────────────
+#
+# Binance Futures reference (BTC): taker = 0.0500% = 0.00050
+# These are EXPLICIT assumptions. They do NOT update automatically if Binance
+# changes its fee schedule. Change them deliberately, document the change.
+costs:
+  maker_fee_rate: 0.00020               # 0.020% maker fee
+  taker_fee_rate: 0.00050               # 0.050% taker fee
+
+# ── Capital Management (Prompt 03) ────────────────────────────────────────────
+capital:
+  initial_balance: 10000.0              # Starting capital in USDT
+  risk_per_trade_pct: 1.0               # % of equity at risk per trade
+
+# ── Risk Management (Prompt 03 + Prompt 05) ──────────────────────────────────
+risk:
+  # R/R configuration
+  risk_reward_ratio: 3.0                # Target reward / risk (e.g. 3.0 = 3R)
+
+  # Per-trade risk (mirrors capital.risk_per_trade_pct — used by risk engine)
+  risk_per_trade_pct: 1.0
+
+  # Portfolio-level limits
+  max_concurrent_positions: 5           # Max simultaneous open positions
+  max_total_exposure_pct: 50.0          # Max sum(notional) / equity (%)
+  max_asset_exposure_pct: 20.0          # Max notional per symbol / equity (%)
+
+  # Daily limits
+  # When daily_profit_target_pct is reached: STOP opening new positions.
+  # Existing positions continue under their own management rules.
+  daily_profit_target_pct: 2.0          # % of equity
+
+  # When daily_loss_limit_pct is breached: STOP opening new positions.
+  # Existing positions continue under their own management rules.
+  daily_loss_limit_pct: 3.0             # % of equity (positive number = loss)
+
+# ── Position Sizing (Prompt 03) ───────────────────────────────────────────────
+#
+# mode options:
+#   risk_based   — size from equity × risk_per_trade_pct / stop_distance
+#   fixed        — use a fixed_quantity per trade (for testing only)
+position_sizing:
+  mode: risk_based
+  fixed_quantity: null                  # Only used when mode = 'fixed'
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging:

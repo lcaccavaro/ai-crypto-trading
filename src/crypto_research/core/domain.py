@@ -15,6 +15,15 @@ Design principles:
 IMPORTANT: These are domain MODELS, not implementations.
     The actual ingestion, strategy logic, execution and risk logic live in
     their respective packages and are added in later prompts.
+
+Prompt 03 additions:
+    - New enums: OrderStatus, ExitReason, RejectionReason, PositionSizingMode,
+                 IntrabarFillPolicy, GapPolicy, MarketType
+    - Extended: Order (stop_price, target_price, timeframe, status, etc.)
+    - Extended: Fill (spread_cost)
+    - Extended: Trade (gross_pnl, fees, slippage_cost, spread_cost, net_pnl,
+                       risk_amount, r_multiple, initial_stop, holding_duration_seconds)
+    - New: PortfolioState, EquityCurvePoint, ExecutionEvent
 """
 
 from __future__ import annotations
@@ -63,6 +72,20 @@ class Timeframe(str, Enum):
                 f"Unknown timeframe '{value}'. Valid values: {valid}"
             ) from None
 
+    def to_seconds(self) -> int:
+        """Return the timeframe duration in seconds."""
+        mapping = {
+            "1m": 60,
+            "3m": 180,
+            "5m": 300,
+            "15m": 900,
+            "30m": 1800,
+            "1h": 3600,
+            "2h": 7200,
+            "4h": 14400,
+        }
+        return mapping[self.value]
+
 
 class SignalDirection(str, Enum):
     """Direction of a trading signal produced by a strategy."""
@@ -88,11 +111,150 @@ class OrderType(str, Enum):
     STOP_LIMIT = "stop_limit"
 
 
+class OrderStatus(str, Enum):
+    """
+    Lifecycle status of an order.
+
+    PENDING     — Order created, not yet activated.
+    ACTIVE      — Order is live and awaiting execution.
+    FILLED      — Order was fully executed.
+    REJECTED    — Order was rejected before activation (risk/capital limits).
+    CANCELLED   — Order was cancelled after activation but before fill.
+    """
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    FILLED = "filled"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
 class PositionSide(str, Enum):
     """Whether the position is long or short."""
 
     LONG = "long"
     SHORT = "short"
+
+
+class MarketType(str, Enum):
+    """
+    Type of market this position/order is in.
+
+    SPOT       — Cash market (no leverage, no shorting by default).
+    FUTURES    — Dated futures contracts.
+    PERPETUAL  — Perpetual (USDT-margined) futures.
+    """
+
+    SPOT = "spot"
+    FUTURES = "futures"
+    PERPETUAL = "perpetual"
+
+
+class ExitReason(str, Enum):
+    """
+    Reason a position was closed.
+
+    STOP                  — Stop-loss was hit.
+    TARGET                — Take-profit target was reached.
+    DAILY_PROFIT_TARGET   — Position closed because daily profit target reached.
+    DAILY_LOSS_LIMIT      — Position closed because daily loss limit reached.
+    MANUAL                — Manually closed (not used in Prompt 03 backtesting).
+    END_OF_DATA           — Simulation ended while position was open.
+    """
+
+    STOP = "stop"
+    TARGET = "target"
+    DAILY_PROFIT_TARGET = "daily_profit_target"
+    DAILY_LOSS_LIMIT = "daily_loss_limit"
+    MANUAL = "manual"
+    END_OF_DATA = "end_of_data"
+
+
+class RejectionReason(str, Enum):
+    """
+    Reason an order was rejected by the risk gate.
+
+    These are logged and included in the execution ledger.
+    No rejected order is silently discarded.
+    """
+
+    MAX_CONCURRENT_POSITIONS = "max_concurrent_positions"
+    MAX_TOTAL_EXPOSURE = "max_total_exposure"
+    MAX_ASSET_EXPOSURE = "max_asset_exposure"
+    DAILY_PROFIT_TARGET_REACHED = "daily_profit_target_reached"
+    DAILY_LOSS_LIMIT_REACHED = "daily_loss_limit_reached"
+    INSUFFICIENT_CAPITAL = "insufficient_capital"
+    INVALID_ORDER = "invalid_order"
+    SHORT_NOT_ALLOWED = "short_not_allowed"
+    MARKET_NOT_AVAILABLE = "market_not_available"
+
+
+class PositionSizingMode(str, Enum):
+    """Position sizing algorithm."""
+
+    RISK_BASED = "risk_based"
+    FIXED = "fixed"
+
+
+class IntrabarFillPolicy(str, Enum):
+    """
+    Policy for handling candles where both stop and target are touched.
+
+    When a single OHLC candle's high >= target AND low <= stop, we cannot
+    know from OHLC data alone which was hit first. This policy determines
+    the engine's behavior in that case.
+
+    STOP_FIRST       — Assume the stop was hit first (conservative, default).
+    TARGET_FIRST     — Assume the target was hit first (optimistic).
+    REJECT_AMBIGUOUS — Record neither; log the ambiguity and skip the candle.
+
+    IMPORTANT: None of these interpretations is factually correct at OHLC
+    resolution. The correct interpretation requires tick data. Document this
+    limitation clearly in research outputs.
+    """
+
+    STOP_FIRST = "stop_first"
+    TARGET_FIRST = "target_first"
+    REJECT_AMBIGUOUS = "reject_ambiguous"
+
+
+class GapPolicy(str, Enum):
+    """
+    Policy for handling price gaps beyond stop or target.
+
+    When a candle opens beyond a stop or target level (gap), the engine
+    cannot fill at the stop/target price because the market never traded
+    there during normal hours.
+
+    FILL_AT_OPEN  — Fill at the candle's open price (realistic, default).
+    FILL_AT_LEVEL — Fill at the stop/target level (unrealistic, optimistic).
+
+    Default: FILL_AT_OPEN. A realistic backtest must use FILL_AT_OPEN.
+    """
+
+    FILL_AT_OPEN = "fill_at_open"
+    FILL_AT_LEVEL = "fill_at_level"
+
+
+class EventType(str, Enum):
+    """Type of execution event recorded in the audit ledger."""
+
+    BACKTEST_STARTED = "backtest_started"
+    DATA_VALIDATED = "data_validated"
+    SIGNAL_RECEIVED = "signal_received"
+    ORDER_CREATED = "order_created"
+    ORDER_REJECTED = "order_rejected"
+    ORDER_FILLED = "order_filled"
+    STOP_TRIGGERED = "stop_triggered"
+    TARGET_TRIGGERED = "target_triggered"
+    POSITION_OPENED = "position_opened"
+    POSITION_CLOSED = "position_closed"
+    RISK_LIMIT_REACHED = "risk_limit_reached"
+    DAILY_RESET = "daily_reset"
+    BACKTEST_COMPLETED = "backtest_completed"
+    BACKTEST_FAILED = "backtest_failed"
+    GAP_FILL = "gap_fill"
+    INTRABAR_AMBIGUITY = "intrabar_ambiguity"
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +280,7 @@ class Candle:
         low:        Low price during the period.
         close:      Close price (available only at period end).
         volume:     Base asset volume traded during the period.
+        close_time: UTC close timestamp of the candle (= timestamp + timeframe - 1ms).
     """
 
     timestamp: datetime
@@ -128,6 +291,7 @@ class Candle:
     low: float
     close: float
     volume: float
+    close_time: datetime | None = None
 
     def __post_init__(self) -> None:
         """Validate OHLC relationships on construction."""
@@ -175,6 +339,8 @@ class Signal:
         timeframe:      Timeframe the strategy operated on.
         direction:      Long, short, or neutral.
         strength:       Optional normalized signal strength in [0.0, 1.0].
+        stop_price:     Suggested stop-loss price (strategy hint, not required).
+        target_price:   Suggested take-profit price (strategy hint, not required).
         metadata:       Optional free-form dict for strategy-specific extras.
                         Must never contain future information.
     """
@@ -185,6 +351,8 @@ class Signal:
     timeframe: Timeframe
     direction: SignalDirection
     strength: float = 1.0
+    stop_price: float | None = None
+    target_price: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -205,16 +373,21 @@ class Order:
     An order request submitted to the execution engine.
 
     Fields:
-        order_id:   Unique identifier for this order.
-        timestamp:  UTC time at which the order was submitted.
-        asset:      Trading symbol.
-        side:       Buy or sell.
-        order_type: Market, limit, stop, etc.
-        quantity:   Order size in base asset units.
-        price:      Limit price (None for market orders).
-        stop_price: Stop trigger price (for stop orders).
-        strategy_name: The strategy that generated this order.
-        run_id:     Research run identifier for traceability.
+        order_id:         Unique identifier for this order.
+        timestamp:        UTC time at which the order was submitted.
+        asset:            Trading symbol.
+        side:             Buy or sell.
+        order_type:       Market, limit, stop, etc.
+        quantity:         Order size in base asset units.
+        strategy_name:    The strategy that generated this order.
+        run_id:           Research run identifier for traceability.
+        timeframe:        Timeframe of the strategy signal.
+        price:            Limit price (None for market orders).
+        stop_price:       Stop-loss level for the position (not a stop order price).
+        target_price:     Take-profit level for the position.
+        activation_time:  When this order becomes active (None = immediately).
+        status:           Current lifecycle status.
+        rejection_reason: If rejected, the reason (for audit log).
     """
 
     order_id: str
@@ -225,8 +398,13 @@ class Order:
     quantity: float
     strategy_name: str
     run_id: str
+    timeframe: Timeframe | None = None
     price: float | None = None
     stop_price: float | None = None
+    target_price: float | None = None
+    activation_time: datetime | None = None
+    status: OrderStatus = OrderStatus.PENDING
+    rejection_reason: RejectionReason | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -251,8 +429,13 @@ class Order:
         quantity: float,
         strategy_name: str,
         run_id: str,
+        timeframe: Timeframe | None = None,
         price: float | None = None,
         stop_price: float | None = None,
+        target_price: float | None = None,
+        activation_time: datetime | None = None,
+        status: OrderStatus = OrderStatus.PENDING,
+        rejection_reason: RejectionReason | None = None,
     ) -> "Order":
         """Factory method that auto-generates a unique order_id."""
         return cls(
@@ -264,8 +447,13 @@ class Order:
             quantity=quantity,
             strategy_name=strategy_name,
             run_id=run_id,
+            timeframe=timeframe,
             price=price,
             stop_price=stop_price,
+            target_price=target_price,
+            activation_time=activation_time,
+            status=status,
+            rejection_reason=rejection_reason,
         )
 
 
@@ -275,18 +463,27 @@ class Fill:
     The execution result of an Order.
 
     A Fill represents that an order was actually executed at a specific price
-    and time, with associated fees.
+    and time, with associated costs.
+
+    Cost breakdown (no double-counting):
+        execution_price = requested_price
+                         + slippage (directional, adverse to trader)
+                         + spread   (half-spread, cost of crossing bid/ask)
+        fee             = execution_price × quantity × fee_rate
+        gross_value     = requested_price × quantity
+        net_cost        = execution_price × quantity + fee  (for buys)
 
     Fields:
-        fill_id:        Unique identifier for this fill.
-        order_id:       The order that was filled.
-        timestamp:      UTC time the fill occurred.
-        asset:          Trading symbol.
-        side:           Buy or sell.
-        fill_price:     Actual execution price.
-        quantity:       Filled quantity.
-        fees:           Total fees paid in quote asset.
-        slippage:       Slippage from requested price (informational).
+        fill_id:          Unique identifier for this fill.
+        order_id:         The order that was filled.
+        timestamp:        UTC time the fill occurred.
+        asset:            Trading symbol.
+        side:             Buy or sell.
+        fill_price:       Actual execution price (including slippage + spread).
+        quantity:         Filled quantity.
+        fees:             Total fees paid in quote asset.
+        slippage:         Slippage cost in quote asset (informational).
+        spread_cost:      Spread cost in quote asset (informational).
     """
 
     fill_id: str
@@ -298,6 +495,7 @@ class Fill:
     quantity: float
     fees: float
     slippage: float = 0.0
+    spread_cost: float = 0.0
 
     def __post_init__(self) -> None:
         if self.fill_price <= 0:
@@ -315,13 +513,40 @@ class Fill:
 
     @property
     def gross_value(self) -> float:
-        """Total value of the fill before fees."""
+        """Total value of the fill at execution price, before fees."""
         return self.fill_price * self.quantity
 
     @property
     def net_value(self) -> float:
         """Net value after fees (from buyer's perspective: cost + fees)."""
         return self.gross_value + self.fees
+
+    @classmethod
+    def create(
+        cls,
+        order_id: str,
+        timestamp: datetime,
+        asset: str,
+        side: OrderSide,
+        fill_price: float,
+        quantity: float,
+        fees: float,
+        slippage: float = 0.0,
+        spread_cost: float = 0.0,
+    ) -> "Fill":
+        """Factory method that auto-generates a unique fill_id."""
+        return cls(
+            fill_id=str(uuid.uuid4()),
+            order_id=order_id,
+            timestamp=timestamp,
+            asset=asset,
+            side=side,
+            fill_price=fill_price,
+            quantity=quantity,
+            fees=fees,
+            slippage=slippage,
+            spread_cost=spread_cost,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -345,9 +570,12 @@ class Position:
         entry_fill:     The fill that opened the position.
         strategy_name:  Strategy that generated this position.
         run_id:         Research run for traceability.
-        stop_price:     Current stop-loss price (updated as position evolves).
+        timeframe:      Timeframe of the strategy signal.
+        stop_price:     Current stop-loss price.
         target_price:   Current take-profit target price.
         current_price:  Last known market price (updated by simulation).
+        initial_stop:   Original stop-loss price (for R-multiple calculation).
+        risk_amount:    Dollar amount at risk (entry notional × stop distance %).
     """
 
     position_id: str
@@ -356,9 +584,12 @@ class Position:
     entry_fill: Fill
     strategy_name: str
     run_id: str
+    timeframe: Timeframe | None = None
     stop_price: float | None = None
     target_price: float | None = None
     current_price: float | None = None
+    initial_stop: float | None = None
+    risk_amount: float | None = None
 
     @property
     def entry_price(self) -> float:
@@ -369,12 +600,18 @@ class Position:
         return self.entry_fill.quantity
 
     @property
+    def notional(self) -> float:
+        """Current notional value = quantity × current_price (or entry_price if unknown)."""
+        price = self.current_price if self.current_price is not None else self.entry_price
+        return price * self.quantity
+
+    @property
     def unrealized_pnl(self) -> float | None:
         """
         Unrealized P&L at current_price. Returns None if price is unknown.
 
-        For long positions: (current - entry) * quantity
-        For short positions: (entry - current) * quantity
+        For long positions:  (current - entry) × quantity
+        For short positions: (entry - current) × quantity
         """
         if self.current_price is None:
             return None
@@ -390,8 +627,11 @@ class Position:
         entry_fill: Fill,
         strategy_name: str,
         run_id: str,
+        timeframe: Timeframe | None = None,
         stop_price: float | None = None,
         target_price: float | None = None,
+        initial_stop: float | None = None,
+        risk_amount: float | None = None,
     ) -> "Position":
         """Factory method that auto-generates a unique position_id."""
         return cls(
@@ -401,8 +641,11 @@ class Position:
             entry_fill=entry_fill,
             strategy_name=strategy_name,
             run_id=run_id,
+            timeframe=timeframe,
             stop_price=stop_price,
             target_price=target_price,
+            initial_stop=initial_stop or stop_price,
+            risk_amount=risk_amount,
         )
 
 
@@ -411,17 +654,33 @@ class Trade:
     """
     A completed trade — the full lifecycle of a position from entry to exit.
 
+    Cost accounting:
+        gross_pnl    = (exit_price - entry_price) × quantity  [for LONG]
+                     = (entry_price - exit_price) × quantity  [for SHORT]
+        net_pnl      = gross_pnl - fees - slippage_cost - spread_cost
+        R_multiple   = net_pnl / risk_amount
+                     (positive = winner, negative = loser, -1R = full stop hit)
+
     Fields:
-        trade_id:       Unique identifier.
-        asset:          Trading symbol.
-        side:           Long or short.
-        entry_fill:     Fill that opened the position.
-        exit_fill:      Fill that closed the position.
-        strategy_name:  Strategy that generated the trade.
-        timeframe:      Timeframe of the strategy signal.
-        run_id:         Research run for traceability.
-        realized_pnl:   Realized profit/loss (after fees).
-        exit_reason:    Why the trade was closed (target/stop/time/manual).
+        trade_id:               Unique identifier.
+        asset:                  Trading symbol.
+        side:                   Long or short.
+        entry_fill:             Fill that opened the position.
+        exit_fill:              Fill that closed the position.
+        strategy_name:          Strategy that generated the trade.
+        timeframe:              Timeframe of the strategy signal.
+        run_id:                 Research run for traceability.
+        initial_stop:           Stop-loss price at entry (for R-multiple).
+        target_price:           Take-profit price.
+        gross_pnl:              PnL before costs.
+        fees:                   Total fees paid (entry + exit).
+        slippage_cost:          Total slippage cost (entry + exit).
+        spread_cost:            Total spread cost (entry + exit).
+        net_pnl:                PnL after all costs.
+        risk_amount:            Dollar risk at entry (qty × |entry - stop|).
+        r_multiple:             net_pnl / risk_amount.
+        exit_reason:            Why the trade was closed.
+        holding_duration_seconds: Trade duration in seconds.
     """
 
     trade_id: str
@@ -430,10 +689,25 @@ class Trade:
     entry_fill: Fill
     exit_fill: Fill
     strategy_name: str
-    timeframe: Timeframe
+    timeframe: Timeframe | None
     run_id: str
-    realized_pnl: float
     exit_reason: str
+    gross_pnl: float
+    fees: float
+    slippage_cost: float
+    spread_cost: float
+    net_pnl: float
+    initial_stop: float | None = None
+    target_price: float | None = None
+    risk_amount: float | None = None
+    r_multiple: float | None = None
+    holding_duration_seconds: float | None = None
+
+    # Deprecated: kept for backward compatibility with existing tests.
+    # Use net_pnl instead.
+    @property
+    def realized_pnl(self) -> float:
+        return self.net_pnl
 
     @property
     def duration(self):
@@ -442,7 +716,7 @@ class Trade:
 
     @property
     def is_winner(self) -> bool:
-        return self.realized_pnl > 0
+        return self.net_pnl > 0
 
     @classmethod
     def create(
@@ -452,12 +726,24 @@ class Trade:
         entry_fill: Fill,
         exit_fill: Fill,
         strategy_name: str,
-        timeframe: Timeframe,
         run_id: str,
-        realized_pnl: float,
         exit_reason: str,
+        gross_pnl: float,
+        fees: float,
+        slippage_cost: float,
+        spread_cost: float,
+        net_pnl: float,
+        timeframe: Timeframe | None = None,
+        initial_stop: float | None = None,
+        target_price: float | None = None,
+        risk_amount: float | None = None,
+        r_multiple: float | None = None,
+        holding_duration_seconds: float | None = None,
     ) -> "Trade":
         """Factory method that auto-generates a unique trade_id."""
+        if holding_duration_seconds is None:
+            delta = exit_fill.timestamp - entry_fill.timestamp
+            holding_duration_seconds = delta.total_seconds()
         return cls(
             trade_id=str(uuid.uuid4()),
             asset=asset,
@@ -467,8 +753,144 @@ class Trade:
             strategy_name=strategy_name,
             timeframe=timeframe,
             run_id=run_id,
-            realized_pnl=realized_pnl,
             exit_reason=exit_reason,
+            gross_pnl=gross_pnl,
+            fees=fees,
+            slippage_cost=slippage_cost,
+            spread_cost=spread_cost,
+            net_pnl=net_pnl,
+            initial_stop=initial_stop,
+            target_price=target_price,
+            risk_amount=risk_amount,
+            r_multiple=r_multiple,
+            holding_duration_seconds=holding_duration_seconds,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Portfolio State (Prompt 03)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PortfolioState:
+    """
+    A point-in-time snapshot of the portfolio accounting state.
+
+    Definitions:
+        cash:              Uninvested USDT (not used in any open position).
+        equity:            cash + sum(unrealized_pnl of open positions).
+        used_capital:      Sum of notional values of open positions.
+        available_capital: cash - used_capital (capital free for new positions).
+        gross_exposure:    sum(|notional|) — does not net longs vs shorts.
+        net_exposure:      sum(notional × side_sign) — longs positive, shorts negative.
+        realized_pnl:      Cumulative net PnL of all closed trades.
+        unrealized_pnl:    Cumulative unrealized PnL of all open positions.
+        total_fees:        Cumulative fees paid since run start.
+        total_slippage:    Cumulative slippage cost since run start.
+        total_spread_cost: Cumulative spread cost since run start.
+        daily_pnl:         Net PnL since last UTC day boundary.
+    """
+
+    timestamp: datetime
+    cash: float
+    equity: float
+    used_capital: float
+    available_capital: float
+    gross_exposure: float
+    net_exposure: float
+    realized_pnl: float
+    unrealized_pnl: float
+    total_fees: float
+    total_slippage: float
+    total_spread_cost: float
+    daily_pnl: float = 0.0
+
+
+@dataclass(frozen=True)
+class EquityCurvePoint:
+    """
+    A single point on the equity curve.
+
+    Drawdown is calculated as:
+        drawdown = (equity - peak_equity_so_far) / peak_equity_so_far
+    where peak_equity_so_far is the maximum equity observed up to this
+    point in time — NEVER using future equity values.
+
+    Fields:
+        timestamp:      UTC time of this snapshot.
+        cash:           Cash balance.
+        equity:         Total portfolio equity.
+        realized_pnl:   Cumulative realized PnL.
+        unrealized_pnl: Cumulative unrealized PnL.
+        gross_exposure: Sum of absolute notional values.
+        net_exposure:   Net directional exposure.
+        drawdown:       Current drawdown from historical peak (negative or zero).
+    """
+
+    timestamp: datetime
+    cash: float
+    equity: float
+    realized_pnl: float
+    unrealized_pnl: float
+    gross_exposure: float
+    net_exposure: float
+    drawdown: float
+
+
+@dataclass(frozen=True)
+class ExecutionEvent:
+    """
+    A single entry in the execution audit ledger.
+
+    Every significant engine event is recorded as an ExecutionEvent.
+    This provides a complete, traceable history of the backtest simulation.
+
+    Fields:
+        event_id:       Unique identifier for this event.
+        timestamp:      UTC simulation timestamp when the event occurred.
+        event_type:     Type of event (see EventType enum).
+        run_id:         Research run identifier.
+        asset:          Asset involved (None for portfolio-level events).
+        order_id:       Related order (if applicable).
+        position_id:    Related position (if applicable).
+        trade_id:       Related trade (if applicable).
+        details:        Free-form dict with event-specific information.
+    """
+
+    event_id: str
+    timestamp: datetime
+    event_type: EventType
+    run_id: str
+    asset: str | None = None
+    order_id: str | None = None
+    position_id: str | None = None
+    trade_id: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def create(
+        cls,
+        timestamp: datetime,
+        event_type: EventType,
+        run_id: str,
+        asset: str | None = None,
+        order_id: str | None = None,
+        position_id: str | None = None,
+        trade_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> "ExecutionEvent":
+        """Factory method that auto-generates a unique event_id."""
+        return cls(
+            event_id=str(uuid.uuid4()),
+            timestamp=timestamp,
+            event_type=event_type,
+            run_id=run_id,
+            asset=asset,
+            order_id=order_id,
+            position_id=position_id,
+            trade_id=trade_id,
+            details=details or {},
         )
 
 

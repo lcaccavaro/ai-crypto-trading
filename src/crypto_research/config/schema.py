@@ -7,16 +7,16 @@ Missing required fields raise ConfigurationError immediately — no fallbacks.
 Design decisions:
     - Pydantic v2 `model_config = ConfigDict(extra="forbid")` prevents
       typos in the YAML from being silently ignored.
-    - Fields that will be used in future prompts are included here with
-      appropriate Optional types so the YAML can carry them.
-    - No default values are provided for critical research parameters
-      (assets, timeframes) to force explicit configuration.
+    - All Prompt 03 execution, cost, capital, risk, and position-sizing
+      sections are now fully typed and validated.
+    - The nullable placeholders from Prompt 01 (fee_rate, slippage_model)
+      have been replaced with proper typed fields.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -136,12 +136,200 @@ class DataConfig(BaseModel):
         return self
 
 
+class BacktestConfig(BaseModel):
+    """
+    Backtest run configuration for Prompt 03.
+
+    Defines which date range, symbols, and timeframes are used in a
+    backtest run. Must be a subset of what has been ingested by Prompt 02.
+    The engine will validate data availability before running.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: str = Field(
+        ...,
+        description="Backtest start date (ISO format: YYYY-MM-DD)",
+    )
+    end_date: str = Field(
+        ...,
+        description="Backtest end date (ISO format: YYYY-MM-DD, exclusive)",
+    )
+    symbols: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of asset symbols to backtest (e.g. ['BTCUSDT'])",
+    )
+    timeframes: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of timeframes to use in this backtest run",
+    )
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(
+                f"Invalid date '{v}'. Must be ISO format YYYY-MM-DD."
+            ) from None
+        return v
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "BacktestConfig":
+        start = date.fromisoformat(self.start_date)
+        end = date.fromisoformat(self.end_date)
+        if end <= start:
+            raise ValueError(
+                f"backtest.end_date ({self.end_date}) must be after "
+                f"backtest.start_date ({self.start_date})"
+            )
+        return self
+
+    @field_validator("timeframes")
+    @classmethod
+    def validate_timeframes(cls, timeframes: list[str]) -> list[str]:
+        """Ensure all timeframes are valid and deduplicated."""
+        validated: list[str] = []
+        for tf in timeframes:
+            try:
+                parsed = Timeframe.from_string(tf)
+                validated.append(parsed.value)
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
+        if len(validated) != len(set(validated)):
+            raise ValueError("Duplicate timeframes found in backtest.timeframes.")
+        return validated
+
+
+class ExecutionConfig(BaseModel):
+    """
+    Execution simulation parameters for Prompt 03.
+
+    All parameters are explicit configuration — no magic defaults embedded
+    in the engine. Change these deliberately and document the reason.
+
+    Signal timing semantics:
+        allow_same_close_execution = false (default, required for integrity)
+        → Signals from candle C execute at earliest at C+1 open.
+
+    Intrabar ambiguity (both stop and target touched in same candle):
+        stop_first      = conservative default
+        target_first    = optimistic
+        reject_ambiguous = record neither, skip candle
+
+    Gap policy (price gaps past stop/target between candles):
+        fill_at_open    = fill at candle open (realistic)
+        fill_at_level   = fill at stop/target level (unrealistic)
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    order_model: Literal["market"] = Field(
+        default="market",
+        description="Order execution model. Only 'market' supported in Prompt 03.",
+    )
+    slippage_bps: float = Field(
+        ...,
+        ge=0,
+        description="Slippage assumption in basis points (applied per side of trade)",
+    )
+    spread_bps: float = Field(
+        ...,
+        ge=0,
+        description="Half-spread assumption in basis points",
+    )
+    intrabar_fill_policy: Literal["stop_first", "target_first", "reject_ambiguous"] = Field(
+        default="stop_first",
+        description=(
+            "Policy when both stop and target are touched in the same candle. "
+            "stop_first is conservative and the default."
+        ),
+    )
+    gap_policy: Literal["fill_at_open", "fill_at_level"] = Field(
+        default="fill_at_open",
+        description=(
+            "Policy when price gaps beyond stop/target. "
+            "fill_at_open is realistic (cannot assume execution at gapped price)."
+        ),
+    )
+    allow_same_close_execution: bool = Field(
+        default=False,
+        description=(
+            "If true, a signal generated from candle C can execute at C's close. "
+            "This introduces look-ahead bias and must remain false for valid research."
+        ),
+    )
+
+
+class CostsConfig(BaseModel):
+    """
+    Trading cost assumptions for the backtest engine.
+
+    These are EXPLICIT research parameters. They do NOT auto-update if
+    Binance changes its fee schedule.
+
+    Binance Futures reference fees (BTC/USDT, VIP 0):
+        Maker: 0.0200% = 0.00020
+        Taker: 0.0500% = 0.00050
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    maker_fee_rate: float = Field(
+        ...,
+        ge=0,
+        le=0.01,
+        description="Maker fee as a fraction (e.g. 0.0002 = 0.02%)",
+    )
+    taker_fee_rate: float = Field(
+        ...,
+        ge=0,
+        le=0.01,
+        description="Taker fee as a fraction (e.g. 0.0005 = 0.05%)",
+    )
+
+
+class CapitalConfig(BaseModel):
+    """
+    Portfolio capital configuration for the backtest engine.
+
+    initial_balance: Starting capital in USDT (quote currency).
+    risk_per_trade_pct: Percentage of equity at risk per trade.
+        This is the maximum loss if a trade hits its stop-loss.
+        Example: 1.0 means max 1% of equity lost if stop is hit.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    initial_balance: float = Field(
+        ...,
+        gt=0,
+        description="Starting capital in quote currency (USDT)",
+    )
+    risk_per_trade_pct: float = Field(
+        ...,
+        gt=0,
+        le=10,
+        description="Maximum percentage of equity at risk per trade (e.g. 1.0 = 1%)",
+    )
+
+
 class RiskConfig(BaseModel):
     """
-    Risk management parameters.
+    Risk management parameters for Prompt 03.
 
-    Note: These are configuration placeholders for future prompts.
-    The actual risk logic will be implemented in Prompt 05.
+    Daily limits affect new position entry only:
+        - When daily_profit_target_pct is reached: stop opening new positions.
+          Existing positions continue under their configured management rules.
+        - When daily_loss_limit_pct is exceeded: stop opening new positions.
+          Existing positions continue under their configured management rules.
+
+    Exposure limits:
+        max_total_exposure_pct: sum(|notional|) / equity × 100
+        max_asset_exposure_pct: |notional for symbol| / equity × 100
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -162,38 +350,68 @@ class RiskConfig(BaseModel):
         gt=0,
         description="Maximum number of simultaneously open positions",
     )
-    max_daily_loss_pct: float = Field(
+    max_total_exposure_pct: float = Field(
+        ...,
+        gt=0,
+        le=500,
+        description="Max sum(|notional|) / equity as percentage",
+    )
+    max_asset_exposure_pct: float = Field(
+        ...,
+        gt=0,
+        le=500,
+        description="Max |notional per symbol| / equity as percentage",
+    )
+    daily_profit_target_pct: float = Field(
+        ...,
+        gt=0,
+        description=(
+            "Stop opening new positions when daily PnL reaches this % of equity. "
+            "This is a research parameter, NOT evidence that this target is achievable."
+        ),
+    )
+    daily_loss_limit_pct: float = Field(
         ...,
         gt=0,
         le=100,
-        description="Daily loss limit as percentage of capital",
-    )
-    daily_profit_target_pct: Optional[float] = Field(
-        None,
-        gt=0,
-        description="Optional daily profit target (stop opening new positions when reached)",
+        description=(
+            "Stop opening new positions when daily loss reaches this % of equity. "
+            "Expressed as a positive number (e.g. 3.0 means stop at -3% daily)."
+        ),
     )
 
 
-class ExecutionConfig(BaseModel):
+class PositionSizingConfig(BaseModel):
     """
-    Execution simulation parameters.
+    Position sizing configuration for the backtest engine.
 
-    Note: fee_rate and slippage_model are null in Prompt 01.
-    They will be populated and enforced in Prompt 03.
+    mode: 'risk_based' (default) or 'fixed'
+        risk_based: qty = (equity × risk_per_trade_pct/100) / |entry - stop|
+        fixed: use fixed_quantity regardless of stop distance
+               (for unit testing / validation only)
+
+    fixed_quantity: only used when mode = 'fixed'. Must be set if mode is fixed.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    fee_rate: Optional[float] = Field(
-        None,
-        ge=0,
-        description="Fee rate as a fraction (e.g. 0.001 = 0.1%). Null until Prompt 03.",
+    mode: Literal["risk_based", "fixed"] = Field(
+        default="risk_based",
+        description="Position sizing mode: 'risk_based' or 'fixed'",
     )
-    slippage_model: Optional[str] = Field(
-        None,
-        description="Slippage model identifier. Null until Prompt 03.",
+    fixed_quantity: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description="Fixed quantity per trade. Required only when mode = 'fixed'.",
     )
+
+    @model_validator(mode="after")
+    def validate_fixed_quantity(self) -> "PositionSizingConfig":
+        if self.mode == "fixed" and self.fixed_quantity is None:
+            raise ValueError(
+                "position_sizing.fixed_quantity must be set when mode = 'fixed'."
+            )
+        return self
 
 
 class LoggingConfig(BaseModel):
@@ -256,8 +474,12 @@ class ProjectConfiguration(BaseModel):
         description="List of timeframes to include in research",
     )
     data: DataConfig
-    risk: RiskConfig
+    backtest: BacktestConfig
     execution: ExecutionConfig
+    costs: CostsConfig
+    capital: CapitalConfig
+    risk: RiskConfig
+    position_sizing: PositionSizingConfig
     logging: LoggingConfig
 
     @field_validator("assets")
