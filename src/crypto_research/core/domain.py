@@ -989,3 +989,69 @@ class ResearchRun:
     timeframes: list[str]
     run_directory: str
     environment_info: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Prompt 04 — Strategy Library
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StrategyInfo:
+    """
+    Full metadata for a Prompt 04 strategy implementation.
+
+    Extends StrategyMetadata with additional fields for the strategy library.
+    StrategyMetadata is preserved unchanged for backward compatibility.
+
+    Fields:
+        strategy_id:          Unique identifier, e.g. "EMA_CROSS_001".
+        name:                 Human-readable display name.
+        version:              Semantic version string, e.g. "1.0.0".
+        category:             Strategy family: trend, momentum, mean_reversion,
+                              breakout, volatility, volume, multi_indicator,
+                              market_structure.
+        hypothesis:           Research hypothesis.
+        description:          Implementation description.
+        default_parameters:   Default parameter values (not claimed optimal).
+        parameter_schema:     Parameter constraints map.
+        supported_timeframes: Timeframe strings this strategy supports.
+        supported_sides:      Signal direction strings (long/short/neutral).
+        required_features:    OHLCV features required.
+        warmup_period:        Minimum candles before signals are valid.
+        is_event_based:       True = signals only on transitions (crossover).
+                              False = signals based on current state.
+        notes:                Optional research notes.
+    """
+
+    strategy_id: str
+    name: str
+    version: str
+    category: str
+    hypothesis: str
+    description: str
+    default_parameters: dict[str, Any] = field(default_factory=dict)
+    parameter_schema: dict[str, dict[str, Any]] = field(default_factory=dict)
+    supported_timeframes: list[str] = field(default_factory=list)
+    supported_sides: list[str] = field(default_factory=list)
+    required_features: list[str] = field(default_factory=list)
+    warmup_period: int = 0
+    is_event_based: bool = True
+    notes: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.strategy_id:
+            raise ValueError("strategy_id must not be empty")
+        if not self.version:
+            raise ValueError("version must not be empty")
+        if self.warmup_period < 0:
+            raise ValueError(f"warmup_period must be >= 0, got {self.warmup_period}")
+        valid_categories = {
+            "trend", "momentum", "mean_reversion", "breakout",
+            "volatility", "volume", "multi_indicator", "market_structure",
+        }
+        if self.category not in valid_categories:
+            raise ValueError(
+                f"Invalid category '{self.category}'. "
+                f"Must be one of: {sorted(valid_categories)}"
+            )

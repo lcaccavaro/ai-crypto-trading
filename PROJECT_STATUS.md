@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-**Last Updated:** 2026-09-15
+**Last Updated:** 2026-09-20
 
 ---
 
@@ -10,8 +10,8 @@
 |--------|-------------|--------|
 | **01** | Foundation, architecture, config, reproducibility, testing, logging, notebook | ✅ **COMPLETE** |
 | **02** | Real Binance data ingestion, normalization, storage, data quality | ✅ **COMPLETE** |
-| 03 | Core backtesting engine: candle-by-candle execution, orders, costs, slippage | ⏳ NOT STARTED |
-| 04 | Strategy library: 15–30 strategies with common interface | ⏳ NOT STARTED |
+| **03** | Core backtesting engine: candle-by-candle execution, orders, costs, slippage | ✅ **COMPLETE** |
+| **04** | Strategy library: 26 strategies across 8 categories | ✅ **COMPLETE** |
 | 05 | Risk management, capital management, strategy scoring, activation/deactivation | ⏳ NOT STARTED |
 | 06 | Trade journal, visualizations, daily/weekly/monthly reports | ⏳ NOT STARTED |
 | 07 | Walk-forward validation, robustness testing, regime analysis, out-of-sample | ⏳ NOT STARTED |
@@ -136,7 +136,55 @@
 
 ## Last Validation
 
-- Date: 2026-09-15
-- Tests: **86/86 PASSED**
-- Notebook: **EXECUTED SUCCESSFULLY**
+- Date: 2026-09-20
+- Tests: **537/537 PASSED** (330 Prompt 03 + 207 Prompt 04, zero regressions)
+- Prompt 04 strategies: **26/26 registered**, all 8 categories
 - Latest run ID: See `results/` directory
+
+---
+
+## Prompt 04 — Strategy Library
+
+**Status:** ✅ COMPLETE (2026-09-20)
+**Tests:** 207 new tests, 0 failures, 0 regressions
+
+### ✅ Indicator Library (`strategies/indicators/`)
+- `moving_averages.py`: SMA, EMA, EMA series, WMA
+- `momentum.py`: RSI (Wilder), ROC, MACD
+- `volatility.py`: ATR (Wilder), Rolling Std, Bollinger Bands, BB Width
+- `volume.py`: Relative Volume, Volume SMA
+- `statistical.py`: Z-Score, Donchian Channels, Rolling High/Low
+- All functions: pure stateless, None on insufficient history, zero-volatility safe
+
+### ✅ Framework (`strategies/`)
+- `base.py`: `BaseStrategy` abstract class with warm-up enforcement
+- `registry.py`: `StrategyRegistry` with decorator registration, filter, instantiate
+- `context.py`: `StrategyInstance` (deterministic ID) + `StrategyContext`
+- `signal_ledger.py`: Append-only signal log with CSV export
+- `batch_runner.py`: Multi-instance batch execution with isolated state
+
+### ✅ 26 Strategies (8 Categories)
+
+| Category | Count | Strategy IDs |
+|---|---|---|
+| trend | 4 | EMA_CROSS_001, TRIPLE_EMA_001, PRICE_VS_EMA_001, EMA_SLOPE_001 |
+| momentum | 4 | RSI_MOMENTUM_001, ROC_MOMENTUM_001, MACD_MOMENTUM_001, MULTI_MOM_001 |
+| mean_reversion | 4 | BB_REVERSION_001, RSI_EXTREME_001, ZSCORE_REV_001, EMA_DISTANCE_001 |
+| breakout | 4 | DONCHIAN_001, RANGE_BREAK_001, VOL_BREAK_001, ATR_CHANNEL_001 |
+| volatility | 3 | ATR_EXPAND_001, VOL_COMPRESS_001, BB_WIDTH_001 |
+| volume | 3 | VOL_SPIKE_001, VOL_WGT_MOM_001, VOL_BREAK_CONF_001 |
+| multi_indicator | 2 | TREND_MOM_VOL_001, TREND_VOL_MOM_001 |
+| market_structure | 2 | HH_HL_001, VOL_REGIME_001 |
+
+### ✅ Test Suite (207 tests)
+- `test_indicators.py` — 70 indicator unit tests
+- `test_all_strategies.py` — 96 per-strategy behavioral tests + registry
+- `test_strategy_base.py` — StrategyInfo validation + registry CRUD
+- `test_strategy_isolation.py` — State isolation + StrategyInstance ID
+- `test_pit_mutations.py` — PIT correctness
+- `test_signal_ledger.py` — SignalLedger CRUD + CSV export
+
+### ✅ Documentation
+- `docs/research/STRATEGY_LIBRARY_POLICY.md` — Governing rules
+- `docs/execution/PROMPT_04_EXECUTION_GUIDE.md` — API guide + design decisions
+- `data/metadata/strategy_catalog.json` — Machine-readable strategy catalog (26 entries)
