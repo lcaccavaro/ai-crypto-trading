@@ -317,6 +317,34 @@ class CapitalConfig(BaseModel):
     )
 
 
+class CooldownConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    value: int = 4
+    unit: Literal["hours", "candles"] = "hours"
+
+
+class StrategyManagementConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consecutive_loss_limit: int = 3
+    cooldown: CooldownConfig = Field(default_factory=CooldownConfig)
+    break_even_resets_losses: bool = True
+
+
+class ScoreComponentConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    weight: float = Field(ge=0, le=100)
+    enabled: bool = True
+
+
+class OpportunityScoreConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    minimum_score: float = 40.0
+    version: str = "1.0.0"
+    components: dict[str, ScoreComponentConfig]
+
+
 class RiskConfig(BaseModel):
     """
     Risk management parameters for Prompt 03.
@@ -379,6 +407,16 @@ class RiskConfig(BaseModel):
             "Expressed as a positive number (e.g. 3.0 means stop at -3% daily)."
         ),
     )
+    max_strategy_exposure_pct: float = Field(
+        default=15.0,
+        gt=0,
+        le=500,
+        description="Max |notional per strategy| / equity as percentage",
+    )
+    strategy_management: StrategyManagementConfig = Field(
+        default_factory=StrategyManagementConfig
+    )
+    opportunity_score: OpportunityScoreConfig
 
 
 class PositionSizingConfig(BaseModel):

@@ -187,6 +187,16 @@ class RejectionReason(str, Enum):
     INVALID_ORDER = "invalid_order"
     SHORT_NOT_ALLOWED = "short_not_allowed"
     MARKET_NOT_AVAILABLE = "market_not_available"
+    STRATEGY_PAUSED = "strategy_paused"
+    STRATEGY_DISABLED = "strategy_disabled"
+    COOLDOWN_ACTIVE = "cooldown_active"
+    MAX_STRATEGY_EXPOSURE = "max_strategy_exposure"
+    LOW_SCORE = "low_score"
+    DUPLICATE_SIGNAL = "duplicate_signal"
+    CONFLICTING_SIGNAL = "conflicting_signal"
+    INVALID_CONFIGURATION = "invalid_configuration"
+    INVALID_STOP = "invalid_stop"
+    INVALID_RISK = "invalid_risk"
 
 
 class PositionSizingMode(str, Enum):
@@ -235,6 +245,49 @@ class GapPolicy(str, Enum):
     FILL_AT_OPEN = "fill_at_open"
     FILL_AT_LEVEL = "fill_at_level"
 
+
+
+
+class StrategyLifecycleState(str, Enum):
+    """
+    Lifecycle state of a strategy instance in the portfolio orchestrator.
+
+    ACTIVE   — Strategy is operating normally and may generate/accept entries.
+    PAUSED   — Temporarily paused (e.g. consecutive loss limit). New entries
+               blocked. Existing positions continue under execution management.
+    DISABLED — Permanently disabled for this run (manual/configured). No entries.
+    COOLDOWN — Alias for PAUSED during a timed cooldown period.
+               The system uses PAUSED as the canonical state; COOLDOWN indicates
+               the specific sub-reason. Recorded in the strategy state ledger.
+    """
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DISABLED = "disabled"
+    COOLDOWN = "cooldown"
+
+
+class DailyLimitState(str, Enum):
+    """
+    Portfolio-level daily limit status.
+
+    OPEN                  — No daily limit has been reached. New entries allowed.
+    PROFIT_TARGET_REACHED — Daily profit target reached. New entries blocked.
+    LOSS_LIMIT_REACHED    — Daily loss limit reached. New entries blocked.
+
+    Resets at UTC midnight (start of each UTC calendar day).
+    """
+
+    OPEN = "open"
+    PROFIT_TARGET_REACHED = "profit_target_reached"
+    LOSS_LIMIT_REACHED = "loss_limit_reached"
+
+
+class DecisionOutcome(str, Enum):
+    """Outcome of a portfolio risk decision for a strategy signal."""
+
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 class EventType(str, Enum):
     """Type of execution event recorded in the audit ledger."""
@@ -805,6 +858,12 @@ class PortfolioState:
     total_slippage: float
     total_spread_cost: float
     daily_pnl: float = 0.0
+    # Prompt 05 extensions
+    daily_start_equity: float = 0.0
+    daily_limit_state: str = "open"  # DailyLimitState value
+    strategy_states: dict = field(default_factory=dict)   # instance_id → StrategyLifecycleState
+    asset_exposures: dict = field(default_factory=dict)   # symbol → notional
+    strategy_exposures: dict = field(default_factory=dict) # strategy_id → notional
 
 
 @dataclass(frozen=True)
@@ -929,17 +988,29 @@ class RiskDecision:
     The risk manager evaluates each signal against portfolio state and
     returns a decision: approved or rejected, with reason and sizing.
 
-    Fields:
+    Prompt 03 fields (unchanged, backward compatible):
         approved:           True if the trade is permitted.
         reason:             Explanation of the decision (always required).
         max_position_size:  Maximum allowed position size if approved.
         risk_amount:        Maximum capital at risk for this trade.
+
+    Prompt 05 extensions (all optional, default None/[]):
+        rejection_codes:    Ordered list of all rejection reasons (first = primary).
+        score:              Opportunity score at decision time (None if scoring disabled).
+        score_version:      Version of the scoring model used.
+        approved_quantity:  Approved position quantity (may differ from max_position_size
+                            if capital constraints were binding).
     """
 
     approved: bool
     reason: str
     max_position_size: float | None = None
     risk_amount: float | None = None
+    # Prompt 05 extensions
+    rejection_codes: list = field(default_factory=list)
+    score: float | None = None
+    score_version: str | None = None
+    approved_quantity: float | None = None
 
     def __post_init__(self) -> None:
         if not self.reason:
@@ -1055,3 +1126,118 @@ class StrategyInfo:
                 f"Invalid category '{self.category}'. "
                 f"Must be one of: {sorted(valid_categories)}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Prompt 05 — Portfolio & Risk Orchestration
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StrategyState:
+    """
+    A point-in-time snapshot of a strategy instance's lifecycle state.
+
+    Fields:
+        timestamp:          UTC timestamp of the transition or snapshot.
+        strategy_id:        ID of the strategy (e.g., 'EMA_CROSS_001').
+        instance_id:        Unique ID of the strategy instance.
+        state:              Current Lifecycle state (ACTIVE, PAUSED, DISABLED).
+        reason:             Reason for current state (e.g., 'CONSECUTIVE_LOSS_LIMIT').
+        consecutive_losses: Number of consecutive losses at this point in time.
+        last_trade_result:  Result of the last evaluated trade (e.g., 'LOSS', 'WIN').
+        cooldown_start:     UTC timestamp when cooldown started (if applicable).
+        cooldown_until:     UTC timestamp when cooldown expires (if applicable).
+    """
+
+    timestamp: datetime
+    strategy_id: str
+    instance_id: str
+    state: StrategyLifecycleState
+    reason: str
+    consecutive_losses: int = 0
+    last_trade_result: str | None = None
+    cooldown_start: datetime | None = None
+    cooldown_until: datetime | None = None
+
+
+@dataclass(frozen=True)
+class OpportunityScore:
+    """
+    A computed opportunity score for a strategy signal.
+
+    Fields:
+        timestamp:          UTC timestamp of the score calculation.
+        strategy_id:        ID of the strategy generating the signal.
+        instance_id:        Unique ID of the strategy instance.
+        symbol:             Asset symbol.
+        timeframe:          Timeframe of the signal.
+        score_version:      Version of the scoring model.
+        total_score:        Final computed score [0.0 - 100.0].
+        component_scores:   Individual score components.
+        component_weights:  Weights applied to each component.
+        raw_features:       Raw features used for scoring (auditability).
+        threshold:          Configured minimum threshold for acceptance.
+        decision:           ACCEPTED or REJECTED based purely on score.
+    """
+
+    timestamp: datetime
+    strategy_id: str
+    instance_id: str
+    symbol: str
+    timeframe: Timeframe
+    score_version: str
+    total_score: float
+    component_scores: dict[str, float]
+    component_weights: dict[str, float]
+    raw_features: dict[str, Any]
+    threshold: float
+    decision: DecisionOutcome
+
+
+@dataclass(frozen=True)
+class RiskDecisionRecord:
+    """
+    A complete ledger record of a risk orchestration decision.
+
+    Fields:
+        timestamp:          UTC timestamp of the decision.
+        run_id:             Research run ID.
+        strategy_id:        Strategy ID.
+        strategy_version:   Strategy version.
+        instance_id:        Strategy instance ID.
+        symbol:             Asset symbol.
+        timeframe:          Timeframe of the signal.
+        signal:             Signal direction (long/short).
+        score:              Computed opportunity score (if enabled).
+        score_version:      Version of the scoring model.
+        risk_budget:        Calculated dollar risk budget.
+        approved_quantity:  Approved position size (base asset).
+        portfolio_equity:   Portfolio equity at decision time.
+        daily_return_pct:   Portfolio daily return percentage at decision time.
+        consecutive_losses: Strategy's current consecutive loss count.
+        strategy_state:     Strategy's state at decision time.
+        decision:           ACCEPTED or REJECTED.
+        primary_reason:     Main reason for the decision.
+        rejection_reasons:  List of all rejection reasons (if any).
+    """
+
+    timestamp: datetime
+    run_id: str
+    strategy_id: str
+    strategy_version: str
+    instance_id: str
+    symbol: str
+    timeframe: Timeframe
+    signal: SignalDirection
+    score: float | None
+    score_version: str | None
+    risk_budget: float | None
+    approved_quantity: float | None
+    portfolio_equity: float
+    daily_return_pct: float
+    consecutive_losses: int
+    strategy_state: StrategyLifecycleState
+    decision: DecisionOutcome
+    primary_reason: str
+    rejection_reasons: list[RejectionReason]

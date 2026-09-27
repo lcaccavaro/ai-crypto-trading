@@ -287,3 +287,107 @@ class RiskGate:
             )
             return False, RejectionReason.INSUFFICIENT_CAPITAL
         return True, None
+
+    def check_strategy_state(
+        self, state_str: str
+    ) -> tuple[bool, Optional[RejectionReason]]:
+        """Reject if strategy is not ACTIVE."""
+        if state_str == "disabled":
+            return False, RejectionReason.STRATEGY_DISABLED
+        if state_str == "paused":
+            return False, RejectionReason.STRATEGY_PAUSED
+        if state_str == "cooldown":
+            return False, RejectionReason.COOLDOWN_ACTIVE
+        return True, None
+
+    def check_score_threshold(
+        self, score: Optional[float]
+    ) -> tuple[bool, Optional[RejectionReason]]:
+        """Reject if score is below configured threshold."""
+        if not self._cfg.opportunity_score.enabled or score is None:
+            return True, None
+        if score < self._cfg.opportunity_score.minimum_score:
+            logger.info(
+                "Order rejected: low score",
+                score=round(score, 2),
+                threshold=self._cfg.opportunity_score.minimum_score,
+            )
+            return False, RejectionReason.LOW_SCORE
+        return True, None
+
+    def check_max_strategy_exposure(
+        self,
+        current_strategy_notional: float,
+        new_notional: float,
+        equity: float,
+    ) -> tuple[bool, Optional[RejectionReason]]:
+        """Reject if per-strategy exposure after entry would exceed limit."""
+        if equity <= 0:
+            return False, RejectionReason.INSUFFICIENT_CAPITAL
+
+        projected_pct = (current_strategy_notional + new_notional) / equity * 100.0
+        limit = getattr(self._cfg, 'max_strategy_exposure_pct', 15.0)
+
+        if projected_pct > limit:
+            logger.info(
+                "Order rejected: max strategy exposure",
+                projected_pct=round(projected_pct, 2),
+                limit_pct=limit,
+            )
+            return False, RejectionReason.MAX_STRATEGY_EXPOSURE
+        return True, None
+
+    def check_all_extended(
+        self,
+        side: PositionSide,
+        portfolio_state: PortfolioState,
+        symbol: str,
+        entry_price: float,
+        quantity: float,
+        open_position_count: int,
+        asset_notional: float,
+        strategy_notional: float = 0.0,
+        strategy_state_str: str = "active",
+        score: Optional[float] = None,
+    ) -> tuple[bool, list[RejectionReason]]:
+        """
+        Run all pre-entry checks and return ALL violations (Prompt 05).
+        Order of checks is deterministic: hard limits > strategy state > score.
+        """
+        rejections = []
+        new_notional = entry_price * quantity
+
+        # Hard limits
+        if side == PositionSide.SHORT and not self._allow_short:
+            rejections.append(RejectionReason.SHORT_NOT_ALLOWED)
+            
+        ok, r = self.check_daily_loss_limit(portfolio_state.daily_pnl, portfolio_state.equity)
+        if not ok: rejections.append(r)
+            
+        ok, r = self.check_daily_profit_target(portfolio_state.daily_pnl, portfolio_state.equity)
+        if not ok: rejections.append(r)
+            
+        ok, r = self.check_max_concurrent_positions(open_position_count)
+        if not ok: rejections.append(r)
+            
+        ok, r = self.check_max_total_exposure(portfolio_state.gross_exposure, new_notional, portfolio_state.equity)
+        if not ok: rejections.append(r)
+            
+        ok, r = self.check_max_asset_exposure(asset_notional, new_notional, portfolio_state.equity)
+        if not ok: rejections.append(r)
+            
+        ok, r = self.check_max_strategy_exposure(strategy_notional, new_notional, portfolio_state.equity)
+        if not ok: rejections.append(r)
+            
+        ok, r = self.check_available_capital(portfolio_state.available_capital, new_notional)
+        if not ok: rejections.append(r)
+
+        # Strategy state
+        ok, r = self.check_strategy_state(strategy_state_str)
+        if not ok: rejections.append(r)
+
+        # Score
+        ok, r = self.check_score_threshold(score)
+        if not ok: rejections.append(r)
+
+        return len(rejections) == 0, rejections

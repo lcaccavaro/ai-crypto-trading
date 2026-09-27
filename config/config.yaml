@@ -150,6 +150,7 @@ risk:
   max_concurrent_positions: 5           # Max simultaneous open positions
   max_total_exposure_pct: 50.0          # Max sum(notional) / equity (%)
   max_asset_exposure_pct: 20.0          # Max notional per symbol / equity (%)
+  max_strategy_exposure_pct: 15.0       # Max notional per strategy / equity (%)
 
   # Daily limits
   # When daily_profit_target_pct is reached: STOP opening new positions.
@@ -159,6 +160,40 @@ risk:
   # When daily_loss_limit_pct is breached: STOP opening new positions.
   # Existing positions continue under their own management rules.
   daily_loss_limit_pct: 3.0             # % of equity (positive number = loss)
+
+  # ── Strategy Management (Prompt 05) ─────────────────────────────────────────
+  strategy_management:
+    consecutive_loss_limit: 3           # Pause strategy after N consecutive losses
+    cooldown:
+      enabled: true
+      value: 4
+      unit: hours                       # Cooldown duration
+    break_even_resets_losses: true      # Break-even trades reset the loss counter
+
+  # ── Opportunity Score (Prompt 05) ───────────────────────────────────────────
+  opportunity_score:
+    enabled: true
+    minimum_score: 40.0                 # Reject signals with score below this
+    version: "1.0.0"
+    components:
+      trend_alignment:
+        weight: 20.0
+        enabled: true
+      momentum:
+        weight: 20.0
+        enabled: true
+      volatility:
+        weight: 15.0
+        enabled: true
+      volume:
+        weight: 15.0
+        enabled: true
+      risk_reward:
+        weight: 20.0
+        enabled: true
+      multi_timeframe:
+        weight: 10.0
+        enabled: true
 
 # ── Position Sizing (Prompt 03) ───────────────────────────────────────────────
 #
