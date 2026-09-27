@@ -301,3 +301,57 @@ robustness:
     periods: false                      # Leave-one-period-out (expensive)
 
   strategy_selection: false             # DISABLED — prevents accidental overfitting
+
+# ── Paper Trading (Prompt 08) ────────────────────────────────────────────────
+#
+# Paper trading simulates decisions using public Binance market data.
+# NO real orders are placed. NO trading credentials are required or used.
+#
+# safety.allow_real_orders MUST remain false.
+# Set enabled: true to activate a paper session.
+#
+paper_trading:
+  enabled: false                        # Set true to run a paper session
+
+  initial_balance: 10000.0             # Simulated capital (NOT a real money recommendation)
+
+  market_data:
+    provider: binance_public
+    mode: polling
+    poll_interval_seconds: 10.0
+    max_retries: 3
+    retry_delay_seconds: 2.0
+    request_timeout_seconds: 10.0
+    warmup_candles: 300
+
+  session:
+    auto_start: false
+    resume_enabled: true
+    max_duration_minutes: null          # null = run until manual stop
+
+  safety:
+    allow_real_orders: false            # MUST remain false — prevents real orders
+    require_paper_mode: true            # Reject LIVE execution mode
+
+  persistence:
+    checkpoint_interval_seconds: 30
+    results_dir: results/paper
+
+  reporting:
+    generate_trade_charts: true
+    generate_session_report: true
+    generate_daily_report: true
+
+  drift:
+    enabled: true
+    signal_frequency_change_pct: 50.0
+    score_mean_change_pct: 30.0
+    rejection_rate_change_pct: 50.0
+    cost_change_pct: 40.0
+    min_paper_trades_for_drift: 20
+
+  replay:
+    enabled: false                      # Set true to run deterministic replay
+    speed: 0.0                          # 0.0 = as fast as possible
+    dataset_start: null                 # null = use backtest.start_date
+    dataset_end: null                   # null = use backtest.end_date

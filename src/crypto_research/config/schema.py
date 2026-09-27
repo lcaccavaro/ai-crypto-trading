@@ -637,6 +637,127 @@ class ReportingConfig(BaseModel):
     html: dict[str, bool] = Field(default_factory=lambda: {"enabled": True})
 
 
+# ─── Prompt 08: Paper Trading Configuration ────────────────────────────────────
+
+class PaperMarketDataConfig(BaseModel):
+    """Market data source configuration for paper trading."""
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(default="binance_public", description="Data provider ID")
+    mode: str = Field(default="polling", description="Data retrieval mode: 'polling'")
+    poll_interval_seconds: float = Field(
+        default=10.0, ge=1.0,
+        description="How often to poll Binance REST API for new candles"
+    )
+    max_retries: int = Field(default=3, ge=1)
+    retry_delay_seconds: float = Field(default=2.0, ge=0.5)
+    request_timeout_seconds: float = Field(default=10.0, ge=1.0)
+    warmup_candles: int = Field(
+        default=300, ge=10,
+        description="Number of historical candles to load at session start for strategy warmup"
+    )
+
+
+class PaperSessionConfig(BaseModel):
+    """Session lifecycle configuration."""
+    model_config = ConfigDict(extra="forbid")
+
+    auto_start: bool = Field(default=False)
+    resume_enabled: bool = Field(default=True)
+    max_duration_minutes: float | None = Field(
+        default=None,
+        description="Optional maximum session duration. None = run until manual stop."
+    )
+
+
+class PaperSafetyConfig(BaseModel):
+    """Hard safety guards for paper mode."""
+    model_config = ConfigDict(extra="forbid")
+
+    allow_real_orders: bool = Field(
+        default=False,
+        description="MUST remain False in V1. Setting True raises ConfigurationError."
+    )
+    require_paper_mode: bool = Field(
+        default=True,
+        description="If True, any non-PAPER execution_mode raises ConfigurationError."
+    )
+
+
+class PaperPersistenceConfig(BaseModel):
+    """State persistence / checkpointing."""
+    model_config = ConfigDict(extra="forbid")
+
+    checkpoint_interval_seconds: int = Field(default=30, ge=5)
+    results_dir: str = Field(default="results/paper")
+
+
+class PaperReportingConfig(BaseModel):
+    """Paper-session reporting settings."""
+    model_config = ConfigDict(extra="forbid")
+
+    generate_trade_charts: bool = Field(default=True)
+    generate_session_report: bool = Field(default=True)
+    generate_daily_report: bool = Field(default=True)
+
+
+class PaperDriftConfig(BaseModel):
+    """Drift monitoring thresholds."""
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=True)
+    signal_frequency_change_pct: float = Field(default=50.0, gt=0)
+    score_mean_change_pct: float = Field(default=30.0, gt=0)
+    rejection_rate_change_pct: float = Field(default=50.0, gt=0)
+    cost_change_pct: float = Field(default=40.0, gt=0)
+    min_paper_trades_for_drift: int = Field(
+        default=20, ge=5,
+        description="Minimum trades before drift warnings are generated"
+    )
+
+
+class PaperReplayConfig(BaseModel):
+    """Deterministic replay mode settings."""
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=False)
+    speed: float = Field(
+        default=0.0, ge=0.0,
+        description="0.0 = process as fast as possible. >0 = seconds per candle simulated wait."
+    )
+    dataset_start: str | None = Field(
+        default=None,
+        description="ISO date string for replay start. Uses backtest.start_date if None."
+    )
+    dataset_end: str | None = Field(
+        default=None,
+        description="ISO date string for replay end. Uses backtest.end_date if None."
+    )
+
+
+class PaperTradingConfig(BaseModel):
+    """
+    Prompt 08 — Paper Trading configuration.
+
+    All defaults are safe: enabled=False, allow_real_orders=False.
+    Set enabled=True to activate paper trading mode.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=False)
+    initial_balance: float = Field(
+        default=10000.0, gt=0,
+        description="Simulated starting capital. NOT a real money recommendation."
+    )
+    market_data: PaperMarketDataConfig = Field(default_factory=PaperMarketDataConfig)
+    session: PaperSessionConfig = Field(default_factory=PaperSessionConfig)
+    safety: PaperSafetyConfig = Field(default_factory=PaperSafetyConfig)
+    persistence: PaperPersistenceConfig = Field(default_factory=PaperPersistenceConfig)
+    reporting: PaperReportingConfig = Field(default_factory=PaperReportingConfig)
+    drift: PaperDriftConfig = Field(default_factory=PaperDriftConfig)
+    replay: PaperReplayConfig = Field(default_factory=PaperReplayConfig)
+
+
 
 class ProjectConfiguration(BaseModel):
     """
@@ -676,6 +797,10 @@ class ProjectConfiguration(BaseModel):
     robustness: RobustnessConfig = Field(
         default_factory=RobustnessConfig,
         description="Prompt 07 walk-forward, sensitivity, regime and robustness configuration.",
+    )
+    paper_trading: PaperTradingConfig = Field(
+        default_factory=PaperTradingConfig,
+        description="Prompt 08 paper trading configuration. Disabled by default.",
     )
 
 

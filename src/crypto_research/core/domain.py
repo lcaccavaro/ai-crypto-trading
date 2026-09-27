@@ -246,6 +246,75 @@ class GapPolicy(str, Enum):
     FILL_AT_LEVEL = "fill_at_level"
 
 
+class ExecutionMode(str, Enum):
+    """
+    Execution mode for the research system.
+
+    BACKTEST — Historical simulation using DataCatalog.
+    PAPER    — Simulated trading using live/recent public market data.
+               NO real orders are placed.
+    REPLAY   — Historical data fed through the paper event loop for parity
+               validation. Produces same decisions as BACKTEST under equivalent
+               timing assumptions.
+    LIVE     — Real-order execution. PROHIBITED in V1. Exists only to be
+               explicitly rejected by the safety guard at engine init.
+
+    This mode is recorded on every Order, Fill, Trade, and audit event to
+    ensure complete separation between backtest and paper results.
+    """
+
+    BACKTEST = "BACKTEST"
+    PAPER = "PAPER"
+    REPLAY = "REPLAY"
+    LIVE = "LIVE"   # Exists only to be rejected — see PaperSafetyGuard
+
+
+class PaperSessionState(str, Enum):
+    """
+    Lifecycle state of a paper trading session.
+
+    INITIALIZING — Session is loading configuration, data provider, and state.
+    RUNNING      — Session is actively processing market events.
+    PAUSED       — Session has paused (e.g. after data gap or manual request).
+    STOPPING     — Shutdown requested; draining in-flight events.
+    STOPPED      — Session has ended cleanly; all state persisted.
+    FAILED       — Critical error; state may be partially persisted.
+    """
+
+    INITIALIZING = "INITIALIZING"
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
+
+
+class PaperAuditEventType(str, Enum):
+    """Event types written to the session audit log."""
+
+    SESSION_START = "session_start"
+    SESSION_STOP = "session_stop"
+    SESSION_FAILED = "session_failed"
+    MARKET_DATA_RECEIVED = "market_data_received"
+    MARKET_DATA_REJECTED = "market_data_rejected"
+    MARKET_DATA_DUPLICATE = "market_data_duplicate"
+    DATA_GAP_DETECTED = "data_gap_detected"
+    CONNECTION_LOST = "connection_lost"
+    CONNECTION_RESTORED = "connection_restored"
+    CANDLE_CLOSED = "candle_closed"
+    SIGNAL_GENERATED = "signal_generated"
+    SCORE_CALCULATED = "score_calculated"
+    RISK_DECISION = "risk_decision"
+    PAPER_ORDER_CREATED = "paper_order_created"
+    PAPER_FILL = "paper_fill"
+    POSITION_OPENED = "position_opened"
+    POSITION_UPDATED = "position_updated"
+    POSITION_CLOSED = "position_closed"
+    TRADE_COMPLETED = "trade_completed"
+    CHECKPOINT_SAVED = "checkpoint_saved"
+    HEARTBEAT = "heartbeat"
+    DRIFT_WARNING = "drift_warning"
+    ERROR = "error"
 
 
 class StrategyLifecycleState(str, Enum):
