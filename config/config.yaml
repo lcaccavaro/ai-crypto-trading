@@ -208,3 +208,32 @@ position_sizing:
 logging:
   level: INFO
   format: console
+
+# ── Reporting (Prompt 06) ───────────────────────────────────────────────────
+reporting:
+  enabled: true
+  formats:
+    csv: true
+    json: true
+    markdown: true
+    html: true
+  trade_diary:
+    enabled: true
+  trade_charts:
+    enabled: true
+    bars_before_entry: 100
+    bars_after_entry: 100
+    show_indicators: true
+    show_entry: true
+    show_stop: true
+    show_target: true
+    show_exit: true
+  aggregation:
+    timezone: UTC
+  filters:
+    minimum_score: null
+    strategies: []
+    symbols: []
+    timeframes: []
+  html:
+    enabled: true

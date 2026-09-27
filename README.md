@@ -132,3 +132,11 @@ All research parameters live in `config/config.yaml`. No parameters should be ha
 ## License
 
 MIT
+
+## Reporting & Observability (Prompt 06)
+The reporting layer operates entirely downstream of the core backtest execution. It takes the output (Trades, Signals, Risk Decisions, and Portfolio State) and generates:
+- `Trade Diary`
+- `Trade Charts`
+- Daily, Weekly, and Monthly `Research Reports`
+
+These reports provide full auditability of the decision-making process, including `Decision Quality` assessment (was the trade valid?) and rejection analysis.

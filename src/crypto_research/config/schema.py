@@ -485,6 +485,40 @@ class LoggingConfig(BaseModel):
         return lower
 
 
+class FormatsConfig(BaseModel):
+    csv: bool = True
+    json: bool = True
+    markdown: bool = True
+    html: bool = True
+
+class TradeChartConfig(BaseModel):
+    enabled: bool = True
+    bars_before_entry: int = Field(100, ge=10)
+    bars_after_entry: int = Field(100, ge=10)
+    show_indicators: bool = True
+    show_entry: bool = True
+    show_stop: bool = True
+    show_target: bool = True
+    show_exit: bool = True
+
+class ReportingFiltersConfig(BaseModel):
+    minimum_score: float | None = None
+    strategies: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
+    timeframes: list[str] = Field(default_factory=list)
+
+class ReportingConfig(BaseModel):
+    """Configuration for Prompt 06 reporting."""
+    enabled: bool = True
+    formats: FormatsConfig = Field(default_factory=FormatsConfig)
+    trade_diary: dict[str, bool] = Field(default_factory=lambda: {"enabled": True})
+    trade_charts: TradeChartConfig = Field(default_factory=TradeChartConfig)
+    aggregation: dict[str, str] = Field(default_factory=lambda: {"timezone": "UTC"})
+    filters: ReportingFiltersConfig = Field(default_factory=ReportingFiltersConfig)
+    html: dict[str, bool] = Field(default_factory=lambda: {"enabled": True})
+
+
+
 class ProjectConfiguration(BaseModel):
     """
     Root configuration model for the entire research system.
@@ -519,6 +553,7 @@ class ProjectConfiguration(BaseModel):
     risk: RiskConfig
     position_sizing: PositionSizingConfig
     logging: LoggingConfig
+    reporting: ReportingConfig = Field(default_factory=ReportingConfig)
 
     @field_validator("assets")
     @classmethod

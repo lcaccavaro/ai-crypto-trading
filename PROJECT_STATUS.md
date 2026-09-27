@@ -188,3 +188,10 @@
 - `docs/research/STRATEGY_LIBRARY_POLICY.md` — Governing rules
 - `docs/execution/PROMPT_04_EXECUTION_GUIDE.md` — API guide + design decisions
 - `data/metadata/strategy_catalog.json` — Machine-readable strategy catalog (26 entries)
+
+### Prompt 06
+- **Status**: COMPLETE
+- **Date**: 2026-09-27
+- **Components**: Trade Diary, Aggregator, Charts, Exporter, Runner.
+- **Tests Executed**: Unit tests in `tests/unit/reporting` passed.
+- **Next Step**: READY FOR PROMPT 07
