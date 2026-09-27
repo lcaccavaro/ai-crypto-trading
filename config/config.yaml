@@ -237,3 +237,67 @@ reporting:
     timeframes: []
   html:
     enabled: true
+
+# ── Robustness Research (Prompt 07) ─────────────────────────────────────────
+#
+# Walk-forward, sensitivity, regime analysis and robustness validation.
+#
+# IMPORTANT:
+#   run_type: DEVELOPMENT  → fast subset run for development/testing
+#   run_type: VALIDATION   → medium run for pre-submission checks
+#   run_type: FULL         → complete research run (required for acceptance)
+#
+# NOTE: strategy_selection is DISABLED by default to prevent accidental
+# overfitting. Only enable if you explicitly intend to test selection logic.
+#
+robustness:
+  enabled: false                        # Set to true to run P07 analysis
+
+  run_type: DEVELOPMENT                 # DEVELOPMENT | VALIDATION | FULL
+
+  walk_forward:
+    enabled: true
+    mode: rolling                       # rolling | expanding
+    train_period:
+      value: 180
+      unit: days
+    validation_period:
+      value: 30
+      unit: days
+    test_period:
+      value: 30
+      unit: days
+    step:
+      value: 30
+      unit: days
+
+  sensitivity:
+    enabled: true
+    # Risk-reward neighborhood (baseline is risk.risk_reward_ratio above)
+    # NOT optimization — tests stability only
+    risk_reward_ratios: [2.0, 2.5, 3.0, 3.5, 4.0]
+    # Cost multipliers (1.0 = baseline, 2.0 = double all fees/slippage)
+    cost_multipliers: [1.0, 1.25, 1.5, 2.0]
+    # Opportunity score thresholds (only if risk.opportunity_score.enabled=true)
+    score_thresholds: [40.0, 50.0, 60.0, 70.0]
+
+  regime:
+    enabled: true
+    trend:
+      ma_period: 50                     # MA period for trend direction
+      slope_threshold_pct: 0.5          # % distance from MA to classify trend
+    volatility:
+      atr_period: 14                    # ATR period for volatility regime
+      low_threshold_pct: 1.0            # ATR/price below this → LOW_VOL
+      high_threshold_pct: 3.0           # ATR/price above this → HIGH_VOL
+
+  minimum_sample_sizes:
+    trades: 30                          # Warn if fewer trades than this
+    oos_windows: 5                      # Warn if fewer OOS windows than this
+
+  leave_one_out:
+    assets: true                        # Leave-one-asset-out analysis
+    strategies: false                   # Leave-one-strategy-out (expensive)
+    periods: false                      # Leave-one-period-out (expensive)
+
+  strategy_selection: false             # DISABLED — prevents accidental overfitting

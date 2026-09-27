@@ -1,6 +1,4 @@
-# PROJECT STATUS
-
-**Last Updated:** 2026-09-20
+**Last Updated:** 2026-09-27
 
 ---
 
@@ -12,9 +10,9 @@
 | **02** | Real Binance data ingestion, normalization, storage, data quality | ✅ **COMPLETE** |
 | **03** | Core backtesting engine: candle-by-candle execution, orders, costs, slippage | ✅ **COMPLETE** |
 | **04** | Strategy library: 26 strategies across 8 categories | ✅ **COMPLETE** |
-| 05 | Risk management, capital management, strategy scoring, activation/deactivation | ⏳ NOT STARTED |
-| 06 | Trade journal, visualizations, daily/weekly/monthly reports | ⏳ NOT STARTED |
-| 07 | Walk-forward validation, robustness testing, regime analysis, out-of-sample | ⏳ NOT STARTED |
+| **05** | Risk management, capital management, strategy scoring, activation/deactivation | ✅ **COMPLETE** |
+| **06** | Trade journal, visualizations, daily/weekly/monthly reports | ✅ **COMPLETE** |
+| **07** | Walk-forward validation, robustness testing, regime analysis, out-of-sample | ✅ **COMPLETE** |
 | 08 | Paper trading / real-time research mode (same architecture as backtester) | ⏳ NOT STARTED |
 
 ---
@@ -136,9 +134,9 @@
 
 ## Last Validation
 
-- Date: 2026-09-20
-- Tests: **537/537 PASSED** (330 Prompt 03 + 207 Prompt 04, zero regressions)
-- Prompt 04 strategies: **26/26 registered**, all 8 categories
+- Date: 2026-09-27
+- Tests: **588/588 PASSED** (P01–P07 complete, zero regressions)
+- Prompt 07: 53 new tests, 9 new modules, 0 failures
 - Latest run ID: See `results/` directory
 
 ---
@@ -190,8 +188,71 @@
 - `data/metadata/strategy_catalog.json` — Machine-readable strategy catalog (26 entries)
 
 ### Prompt 06
-- **Status**: COMPLETE
+- **Status**: ✅ COMPLETE
 - **Date**: 2026-09-27
 - **Components**: Trade Diary, Aggregator, Charts, Exporter, Runner.
 - **Tests Executed**: Unit tests in `tests/unit/reporting` passed.
-- **Next Step**: READY FOR PROMPT 07
+
+---
+
+## Prompt 07 — Walk-Forward & Robustness Validation
+
+**Status:** ✅ COMPLETE (2026-09-27)  
+**New Tests:** 53 | **Total Tests:** 588 | **Failures:** 0
+
+### ✅ Walk-Forward Analysis
+- `research/walk_forward/splitter.py` — Rolling/expanding window generator with temporal ordering enforcement
+- `research/walk_forward/runner.py` — Executes `BacktestEngine` over TRAIN/VAL/OOS per window
+- Config immutability: each window gets an isolated config clone
+- OOS overlap detection: `validate_no_oos_overlap()`
+
+### ✅ Sensitivity Analysis (NOT Optimization)
+- `research/sensitivity/runner.py` — Tests pre-defined RR, cost, and score threshold neighborhoods
+- Clones config per variant; never modifies baseline
+- All results are descriptive — no parameter is selected as 'best'
+
+### ✅ Regime Classification (PIT-Safe)
+- `research/regimes/classifier.py` — Vectorized rolling MA (trend) + ATR (volatility) classification
+- PIT guarantee: at timestamp T, only candles ≤ T used
+- `research/regimes/analyzer.py` — Joins trades to regimes by entry timestamp, computes stats per regime
+
+### ✅ Robustness Framework
+- `research/robustness/analyzer.py` — Cross-asset, cross-timeframe, leave-one-asset-out
+- `research/robustness/warnings.py` — 8 diagnostic warning types (LOW_SAMPLE, HIGH_COST_SENSITIVITY, etc.)
+- `research/robustness/metrics.py` — OOS stability statistics (median/mean/stdev across windows)
+
+### ✅ Experiment Registry
+- `research/experiments/registry.py` — Append-only ledger with config snapshot per experiment
+- All experiments recorded before starting; failures recorded explicitly
+- Multiple-testing disclosure built into every summary
+
+### ✅ Report Writer
+- `research/reporting/report_writer.py` — Writes walk-forward, sensitivity, regime, warning artifacts
+- Outputs: CSV, JSON, and ROBUSTNESS_REPORT.md
+- Integrates with existing `results/<run_id>/` directory structure
+
+### ✅ Config Extension
+- `config/schema.py` — Added `WalkForwardConfig`, `SensitivityConfig`, `RegimeConfig`, `RobustnessConfig`
+- All fields have safe defaults (enabled=false) — zero impact on existing runs
+- `config/config.yaml` — Full `robustness:` block documented with comments
+
+### ✅ Test Suite (53 new tests)
+- `tests/unit/research/test_splitter.py` — 18 tests (rolling/expanding/edge cases/OOS overlap)
+- `tests/unit/research/test_regime_classifier.py` — 9 tests (PIT safety, trend/vol classification)
+- `tests/unit/research/test_robustness_warnings.py` — 14 tests (all 8 warning types)
+- `tests/unit/research/test_experiment_registry.py` — 12 tests (registration, persistence, summary)
+
+### ✅ Documentation
+- `docs/research/ROBUSTNESS_AND_WALK_FORWARD_POLICY.md` — Full research policy
+- `docs/execution/PROMPT_07_EXECUTION_GUIDE.md` — Acceptance criteria, config ref, output structure
+- `notebooks/07_robustness_and_walk_forward_validation.ipynb` — 15-section validation notebook
+
+### Key Design Decisions
+- **No parallel engine**: P07 hooks into `BacktestEngine.run()` via config cloning — not a new engine
+- **Sensitivity ≠ Optimization**: explicitly enforced by design; no search loop, no best-value selection
+- **Regime classification is PIT-safe**: vectorized causal rolling windows, no forward references
+- **Failures are explicit**: every experiment failure is recorded in registry with full error message
+- **Multiple-testing transparency**: experiment count documented in every summary output
+
+### Next Step
+- **READY FOR PROMPT 08** (Paper Trading / Real-Time Research Mode)

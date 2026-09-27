@@ -43,6 +43,115 @@ class ResearchConfig(BaseModel):
     data_source: str = Field(..., description="Primary data source, e.g. 'binance'")
 
 
+# ─── Prompt 07: Walk-Forward Configuration ───────────────────────────────────
+
+class WalkForwardPeriodConfig(BaseModel):
+    """Duration config for a walk-forward period component."""
+    model_config = ConfigDict(extra="forbid")
+    value: int = Field(ge=1, description="Duration value")
+    unit: Literal["days", "candles"] = "days"
+
+
+class WalkForwardConfig(BaseModel):
+    """Walk-forward analysis configuration."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    mode: Literal["rolling", "expanding"] = "rolling"
+    train_period: WalkForwardPeriodConfig = Field(
+        default_factory=lambda: WalkForwardPeriodConfig(value=180)
+    )
+    validation_period: WalkForwardPeriodConfig = Field(
+        default_factory=lambda: WalkForwardPeriodConfig(value=30)
+    )
+    test_period: WalkForwardPeriodConfig = Field(
+        default_factory=lambda: WalkForwardPeriodConfig(value=30)
+    )
+    step: WalkForwardPeriodConfig = Field(
+        default_factory=lambda: WalkForwardPeriodConfig(value=30)
+    )
+
+
+class ParameterVariationConfig(BaseModel):
+    """A single parameter and its test neighborhood."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    baseline: float
+    values: list[float] = Field(min_length=1)
+    description: str = ""
+
+
+class SensitivityConfig(BaseModel):
+    """Parameter and cost sensitivity analysis configuration."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    risk_reward_ratios: list[float] = Field(
+        default_factory=lambda: [2.0, 2.5, 3.0, 3.5, 4.0]
+    )
+    cost_multipliers: list[float] = Field(
+        default_factory=lambda: [1.0, 1.25, 1.5, 2.0]
+    )
+    score_thresholds: list[float] = Field(
+        default_factory=lambda: [40.0, 50.0, 60.0, 70.0]
+    )
+    parameters: dict[str, ParameterVariationConfig] = Field(default_factory=dict)
+
+
+class RegimeTrendConfig(BaseModel):
+    """Trend regime thresholds."""
+    model_config = ConfigDict(extra="forbid")
+    ma_period: int = Field(50, ge=5)
+    slope_threshold_pct: float = Field(0.5, ge=0.0)
+
+
+class RegimeVolatilityConfig(BaseModel):
+    """Volatility regime thresholds."""
+    model_config = ConfigDict(extra="forbid")
+    atr_period: int = Field(14, ge=2)
+    low_threshold_pct: float = Field(1.0, ge=0.0)
+    high_threshold_pct: float = Field(3.0, ge=0.0)
+
+
+class RegimeConfig(BaseModel):
+    """Market regime classification configuration."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    trend: RegimeTrendConfig = Field(default_factory=RegimeTrendConfig)
+    volatility: RegimeVolatilityConfig = Field(default_factory=RegimeVolatilityConfig)
+
+
+class MinimumSampleSizesConfig(BaseModel):
+    """Warning thresholds for small samples."""
+    model_config = ConfigDict(extra="forbid")
+    trades: int = Field(30, ge=1)
+    oos_windows: int = Field(5, ge=1)
+
+
+class LeaveOneOutConfig(BaseModel):
+    """Leave-one-out robustness analysis config."""
+    model_config = ConfigDict(extra="forbid")
+    assets: bool = True
+    strategies: bool = False  # can be expensive
+    periods: bool = False     # can be expensive
+
+
+class RobustnessConfig(BaseModel):
+    """Top-level Prompt 07 robustness research configuration."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    run_type: Literal["DEVELOPMENT", "VALIDATION", "FULL"] = "DEVELOPMENT"
+    walk_forward: WalkForwardConfig = Field(default_factory=WalkForwardConfig)
+    sensitivity: SensitivityConfig = Field(default_factory=SensitivityConfig)
+    regime: RegimeConfig = Field(default_factory=RegimeConfig)
+    leave_one_out: LeaveOneOutConfig = Field(default_factory=LeaveOneOutConfig)
+    minimum_sample_sizes: MinimumSampleSizesConfig = Field(
+        default_factory=MinimumSampleSizesConfig
+    )
+    strategy_selection: bool = Field(
+        default=False,
+        description="Enable optional walk-forward strategy selection (disabled by default to prevent overfitting).",
+    )
+
+
 class DataConfig(BaseModel):
     """
     Data ingestion configuration for Prompt 02.
@@ -564,6 +673,11 @@ class ProjectConfiguration(BaseModel):
     position_sizing: PositionSizingConfig
     logging: LoggingConfig
     reporting: ReportingConfig = Field(default_factory=ReportingConfig)
+    robustness: RobustnessConfig = Field(
+        default_factory=RobustnessConfig,
+        description="Prompt 07 walk-forward, sensitivity, regime and robustness configuration.",
+    )
+
 
     @field_validator("assets")
     @classmethod
