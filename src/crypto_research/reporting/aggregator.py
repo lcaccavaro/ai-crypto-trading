@@ -98,30 +98,37 @@ class ReportAggregator:
         return reports
 
     def aggregate_weekly(self, trades: Sequence[TradeDiaryRecord]) -> list[WeeklyReportRecord]:
-        """Aggregate trades by calendar week (ISO)."""
-        weeks = defaultdict(list)
+        """Aggregate trades by ISO calendar week."""
+        weeks: dict[str, list[TradeDiaryRecord]] = defaultdict(list)
         for t in trades:
             iso_year, iso_week, _ = t.entry_timestamp.isocalendar()
             week_str = f"{iso_year}-W{iso_week:02d}"
             weeks[week_str].append(t)
-            
+
         reports = []
         for week_str, week_trades in sorted(weeks.items()):
+            # Derive date boundaries from the trades themselves
+            first_entry = min(t.entry_timestamp for t in week_trades)
+            last_exit = max(t.final_exit_timestamp for t in week_trades)
+
+            start_eq = self._get_equity_at_start(first_entry)
+            end_eq = self._get_equity_at_end(last_exit)
+
             net_pnl = sum(t.net_pnl for t in week_trades)
             wins = [t for t in week_trades if t.net_pnl > 0]
             losses = [t for t in week_trades if t.net_pnl < 0]
-            
+
             reports.append(WeeklyReportRecord(
                 period=week_str,
-                starting_equity=0.0, # Simplified
-                ending_equity=0.0,
+                starting_equity=start_eq,
+                ending_equity=end_eq,
                 net_pnl=net_pnl,
-                net_return_pct=0.0,
+                net_return_pct=(net_pnl / start_eq * 100.0) if start_eq > 0 else 0.0,
                 total_trades=len(week_trades),
                 wins=len(wins),
                 losses=len(losses),
                 average_R=statistics.mean([t.realized_R for t in week_trades]) if week_trades else 0.0,
-                total_R=sum([t.realized_R for t in week_trades]),
+                total_R=sum(t.realized_R for t in week_trades),
                 max_drawdown=0.0,
                 average_holding_time=statistics.mean([t.holding_duration_seconds for t in week_trades]) if week_trades else 0.0,
                 total_costs=sum(t.total_cost for t in week_trades),
@@ -131,35 +138,41 @@ class ReportAggregator:
 
     def aggregate_monthly(self, trades: Sequence[TradeDiaryRecord]) -> list[MonthlyReportRecord]:
         """Aggregate trades by calendar month."""
-        months = defaultdict(list)
+        months: dict[str, list[TradeDiaryRecord]] = defaultdict(list)
         for t in trades:
             month_str = t.entry_timestamp.strftime("%Y-%m")
             months[month_str].append(t)
-            
+
         reports = []
         for month_str, month_trades in sorted(months.items()):
+            first_entry = min(t.entry_timestamp for t in month_trades)
+            last_exit = max(t.final_exit_timestamp for t in month_trades)
+
+            start_eq = self._get_equity_at_start(first_entry)
+            end_eq = self._get_equity_at_end(last_exit)
+
             net_pnl = sum(t.net_pnl for t in month_trades)
             wins = [t for t in month_trades if t.net_pnl > 0]
             losses = [t for t in month_trades if t.net_pnl < 0]
-            
-            # Count active days
+
+            # Count active days (days on which at least one trade was entered)
             active_days = len(set(t.entry_timestamp.date() for t in month_trades))
-            
+
             reports.append(MonthlyReportRecord(
                 period=month_str,
-                starting_equity=0.0, # Simplified
-                ending_equity=0.0,
+                starting_equity=start_eq,
+                ending_equity=end_eq,
                 net_pnl=net_pnl,
-                net_return_pct=0.0,
+                net_return_pct=(net_pnl / start_eq * 100.0) if start_eq > 0 else 0.0,
                 total_trades=len(month_trades),
                 wins=len(wins),
                 losses=len(losses),
                 average_R=statistics.mean([t.realized_R for t in month_trades]) if month_trades else 0.0,
-                total_R=sum([t.realized_R for t in month_trades]),
+                total_R=sum(t.realized_R for t in month_trades),
                 max_drawdown=0.0,
                 total_costs=sum(t.total_cost for t in month_trades),
                 average_holding_duration=statistics.mean([t.holding_duration_seconds for t in month_trades]) if month_trades else 0.0,
                 active_trading_days=active_days,
-                zero_trade_days=0, # Hard to know without full calendar
+                zero_trade_days=0,  # Cannot compute without full calendar; document as limitation
             ))
         return reports

@@ -132,14 +132,14 @@ def test_multi_strategy_opposing_signals(base_config):
     )
     
     # Evaluate LONG
-    decision_long = orch.evaluate_signal(sig_long, inst_long, [], 0, 10000.0)
+    decision_long = orch.evaluate_signal(sig_long, inst_long, [], [], 10000.0)
     assert decision_long.approved is True
     
     # If the engine opens the LONG position, the next evaluation will see it.
     # We will simulate the engine creating the position and updating the accountant.
     # Note: in this test we don't simulate the engine's position update, but we test that 
     # the orchestrator evaluates opposing signals independently and correctly.
-    decision_short = orch.evaluate_signal(sig_short, inst_short, [], 0, 10000.0)
+    decision_short = orch.evaluate_signal(sig_short, inst_short, [], [], 10000.0)
     assert decision_short.approved is True
     
     # Both are approved. The Orchestrator does not cancel opposing signals (conflicting signals policy: independent).

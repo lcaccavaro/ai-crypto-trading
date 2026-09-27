@@ -416,7 +416,15 @@ class RiskConfig(BaseModel):
     strategy_management: StrategyManagementConfig = Field(
         default_factory=StrategyManagementConfig
     )
-    opportunity_score: OpportunityScoreConfig
+    opportunity_score: OpportunityScoreConfig = Field(
+        default_factory=lambda: OpportunityScoreConfig(
+            enabled=False,
+            minimum_score=40.0,
+            version="1.0.0",
+            components={},
+        ),
+        description="Opportunity scoring configuration. Disabled by default for backward compatibility.",
+    )
 
 
 class PositionSizingConfig(BaseModel):
@@ -487,9 +495,11 @@ class LoggingConfig(BaseModel):
 
 class FormatsConfig(BaseModel):
     csv: bool = True
-    json: bool = True
+    json_format: bool = Field(default=True, alias="json")
     markdown: bool = True
     html: bool = True
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class TradeChartConfig(BaseModel):
     enabled: bool = True

@@ -19,9 +19,10 @@ logger = get_logger(__name__)
 
 class TradeDiaryBuilder:
     """Builds structured diary records from execution results."""
-    
-    def __init__(self, run_id: str):
+
+    def __init__(self, run_id: str, market_type: str = "futures"):
         self.run_id = run_id
+        self.market_type = market_type
 
     def build_record(
         self,
@@ -69,7 +70,7 @@ class TradeDiaryBuilder:
             strategy_id=trade.strategy_name,
             strategy_version=risk_decision.strategy_version if risk_decision else "unknown",
             symbol=trade.asset,
-            market_type="futures", # Default for prompt 03/06 context
+            market_type=self.market_type,
             timeframe=trade.timeframe.value if trade.timeframe else "unknown",
             side=trade.side.value,
             
@@ -99,7 +100,12 @@ class TradeDiaryBuilder:
             holding_duration_seconds=holding_duration,
             opportunity_score=risk_decision.score if risk_decision else None,
             opportunity_score_version=risk_decision.score_version if risk_decision else None,
-            score_components="", # Not deeply tracked yet
+            # Serialize component scores to JSON string for auditability
+            score_components=(
+                str(risk_decision.component_scores)
+                if risk_decision and hasattr(risk_decision, 'component_scores') and risk_decision.component_scores
+                else ""
+            ),
             risk_decision=risk_decision.decision.value if risk_decision else "UNKNOWN",
             risk_rejection_reason=risk_decision.primary_reason if risk_decision else "",
             

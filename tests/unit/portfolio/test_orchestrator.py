@@ -117,7 +117,7 @@ def test_orchestrator_approves_valid_signal(base_config):
         symbol="BTCUSDT"
     )
     
-    decision = orch.evaluate_signal(sig, inst, [], 0, 10000.0)
+    decision = orch.evaluate_signal(sig, inst, [], [], 10000.0)
     assert decision.approved is True
     assert decision.max_position_size > 0
 
@@ -158,6 +158,6 @@ def test_orchestrator_rejects_paused_strategy(base_config):
     )
     
 
-    decision = orch.evaluate_signal(sig, inst, [], 0, 10000.0)
+    decision = orch.evaluate_signal(sig, inst, [], [], 10000.0)
     assert decision.approved is False
     assert RejectionReason.STRATEGY_PAUSED in decision.rejection_codes

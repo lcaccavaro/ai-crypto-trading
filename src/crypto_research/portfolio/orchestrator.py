@@ -73,31 +73,32 @@ class PortfolioOrchestrator:
         signal: Signal,
         instance: StrategyInstance,
         candles: list[Candle],
-        open_position_count: int,
+        open_positions: list,  # list[Position] — avoid circular import
         entry_price: float,
     ) -> RiskDecision:
         """
         Evaluate a signal through the complete risk and orchestration pipeline.
-        
+
         Args:
             signal: The strategy signal to evaluate.
             instance: The strategy instance generating the signal.
-            candles: Recent candles for scoring.
-            open_position_count: Current number of open positions in the portfolio.
+            candles: Recent candles for scoring (PIT: all candles must be <= signal.timestamp).
+            open_positions: Current open positions in the portfolio (used for exposure checks).
             entry_price: The expected execution entry price (usually next open).
-            
+
         Returns:
             RiskDecision: Approved or rejected, with reasons and sizing.
         """
         rejections: list[RejectionReason] = []
-        
-        # 0. Get current portfolio and strategy state
-        # The PortfolioStateManager should already have its exposure up to date
+
+        # 0. Get current portfolio state with real open positions for accurate exposure tracking.
+        # This is critical: passing open_positions ensures asset_exposures and strategy_exposures
+        # are populated correctly before the exposure limit checks.
         portfolio_state = self._state_manager.update_from_positions(
-            signal.timestamp, [] # Assuming caller manages passing positions, or state manager caches
+            signal.timestamp, open_positions
         )
-        # Actually, caller doesn't pass positions here, so we assume portfolio_state is already updated
-        
+        open_position_count = len(open_positions)
+
         # Determine strategy state machine
         machine = self._strategy_machines.get(instance.instance_id)
         if machine:
