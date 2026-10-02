@@ -1,180 +1,69 @@
-# =============================================================================
-# Crypto Market Research Laboratory — Project Configuration
-# =============================================================================
-#
-# This is the single source of truth for all research parameters.
-#
-# All values are validated at startup by src/crypto_research/config/schema.py
-# Invalid values will stop execution immediately — no fallbacks.
-#
-# For documentation on each section, see config/README.md
-
 project:
   name: crypto_market_research_lab
-  version: "1.0.0"
-
+  version: 1.0.0
 research:
   market: crypto
   data_source: binance
-
-# ── Assets ─────────────────────────────────────────────────────────────────
-# Initial research universe. Add new assets here — never in Python source.
-#
-# SURVIVORSHIP BIAS WARNING: Only include assets whose listing dates
-# are known and respected by the ingestion pipeline.
 assets:
-  - BTCUSDT
-  - ETHUSDT
-  - SOLUSDT
-
-# ── Timeframes ──────────────────────────────────────────────────────────────
-# Valid values: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h
+- BTCUSDT
+- ETHUSDT
+- SOLUSDT
 timeframes:
-  - 1m
-  - 5m
-  - 15m
-  - 1h
-
-# ── Data Ingestion (Prompt 02) ───────────────────────────────────────────────
+- 1m
+- 5m
+- 15m
+- 1h
 data:
-  # Market type. 'futures' uses Binance USDT-margined perpetual contracts.
-  # Valid values: 'futures', 'spot'
   market_type: futures
-
-  # =========================================================================
-  # FULL HISTORICAL RESEARCH RANGE
-  # =========================================================================
-  # These dates define the COMPLETE historical dataset for research.
-  #
-  # ⚠️  NOTE FOR INITIAL SETUP:
-  #     The validation notebook (02_binance_data_ingestion.ipynb) uses a
-  #     SHORT DEMO RANGE (last 30 days) to run quickly during acceptance
-  #     testing. The dates below are the TARGET full-research range.
-  #
-  # 🔄  HOW TO DOWNLOAD THE FULL RANGE:
-  #     1. Ensure these dates cover the period you want to research.
-  #     2. Run the ingestion script directly (not the notebook):
-  #            python3 -m crypto_research.data.ingestion
-  #        Or call DataIngestionPipeline.run() with use_full_range=True.
-  #     3. Expect ~15-25 minutes per symbol for 1m data over 2+ years.
-  #
-  # SOLUSDT listing date on Binance Futures: September 2020.
-  # ETHUSDT listing date on Binance Futures: September 2019.
-  # BTCUSDT listing date on Binance Futures: September 2019.
-  # Requesting data before listing returns empty → recorded as-is, not filled.
-  start_date: "2024-01-01"
-  end_date: "2026-09-01"
-  # =========================================================================
-
-  # Storage directories (relative to project root)
+  start_date: '2024-01-01'
+  end_date: '2026-09-01'
   raw_dir: data/raw
   processed_dir: data/processed
   metadata_dir: data/metadata
-
-  # API behavior
-  # Milliseconds between requests — Binance Futures allows 2400 req/min,
-  # each klines call = 10 weight. 250ms gives ~240 req/min (well within limits).
   request_delay_ms: 250
   max_retries: 3
   retry_delay_s: 5
-
-  # Schema version — increment when the canonical Parquet schema changes
-  schema_version: "1.0"
-
-# ── Backtest Engine (Prompt 03) ─────────────────────────────────────────────
-#
-# IMPORTANT: backtest.start_date / end_date must fall within the range of
-# data actually downloaded by the ingestion pipeline. The engine will fail
-# loudly if the requested range is not available.
+  schema_version: '1.0'
 backtest:
-  # Date range for the backtest run (ISO format: YYYY-MM-DD)
-  start_date: "2026-08-19"
-  end_date: "2026-09-17"
-
-  # Assets and timeframes to include in this backtest run.
-  # Must be a subset of the 'assets' and 'timeframes' lists above.
+  start_date: '2026-08-19'
+  end_date: '2026-09-17'
   symbols:
-    - BTCUSDT
+  - BTCUSDT
   timeframes:
-    - 15m
-
-# ── Execution Simulation (Prompt 03) ─────────────────────────────────────────
-#
-# Execution model controls how simulated orders are filled.
-#
-# Signal timing semantics:
-#   A signal generated using candle C's close price is NOT executed at C's
-#   close. The earliest execution is the OPEN of the next candle (C+1).
-#   This is the default. Set allow_same_close_execution: true to change this
-#   (not recommended — it introduces look-ahead bias at OHLC resolution).
-#
-# Intrabar fill policy (when both stop AND target touched in same candle):
-#   stop_first      — Assume stop is hit first (conservative, default)
-#   target_first    — Assume target is hit first (optimistic)
-#   reject_ambiguous — Reject ambiguous candles, record as neither
-#
-# Gap policy (when price gaps beyond stop or target between candles):
-#   fill_at_open    — Fill at the candle's open price (default, realistic)
-#   fill_at_level   — Fill at the stop/target level (optimistic, unrealistic)
+  - 15m
 execution:
-  order_model: market                   # 'market' only in Prompt 03
-  slippage_bps: 2                       # Slippage in basis points per side
-  spread_bps: 1                         # Half-spread assumption in basis points
-  intrabar_fill_policy: stop_first      # Conservative default
-  gap_policy: fill_at_open              # Realistic gap fill
-  allow_same_close_execution: false     # Must be false to avoid look-ahead
-
-# ── Trading Costs (Prompt 03) ─────────────────────────────────────────────────
-#
-# Binance Futures reference (BTC): taker = 0.0500% = 0.00050
-# These are EXPLICIT assumptions. They do NOT update automatically if Binance
-# changes its fee schedule. Change them deliberately, document the change.
+  order_model: market
+  slippage_bps: 2
+  spread_bps: 1
+  intrabar_fill_policy: stop_first
+  gap_policy: fill_at_open
+  allow_same_close_execution: false
 costs:
-  maker_fee_rate: 0.00020               # 0.020% maker fee
-  taker_fee_rate: 0.00050               # 0.050% taker fee
-
-# ── Capital Management (Prompt 03) ────────────────────────────────────────────
+  maker_fee_rate: 0.0002
+  taker_fee_rate: 0.0005
 capital:
-  initial_balance: 10000.0              # Starting capital in USDT
-  risk_per_trade_pct: 1.0               # % of equity at risk per trade
-
-# ── Risk Management (Prompt 03 + Prompt 05) ──────────────────────────────────
-risk:
-  # R/R configuration
-  risk_reward_ratio: 3.0                # Target reward / risk (e.g. 3.0 = 3R)
-
-  # Per-trade risk (mirrors capital.risk_per_trade_pct — used by risk engine)
+  initial_balance: 10000.0
   risk_per_trade_pct: 1.0
-
-  # Portfolio-level limits
-  max_concurrent_positions: 5           # Max simultaneous open positions
-  max_total_exposure_pct: 50.0          # Max sum(notional) / equity (%)
-  max_asset_exposure_pct: 20.0          # Max notional per symbol / equity (%)
-  max_strategy_exposure_pct: 15.0       # Max notional per strategy / equity (%)
-
-  # Daily limits
-  # When daily_profit_target_pct is reached: STOP opening new positions.
-  # Existing positions continue under their own management rules.
-  daily_profit_target_pct: 2.0          # % of equity
-
-  # When daily_loss_limit_pct is breached: STOP opening new positions.
-  # Existing positions continue under their own management rules.
-  daily_loss_limit_pct: 3.0             # % of equity (positive number = loss)
-
-  # ── Strategy Management (Prompt 05) ─────────────────────────────────────────
+risk:
+  risk_reward_ratio: 3.0
+  risk_per_trade_pct: 1.0
+  max_concurrent_positions: 5
+  max_total_exposure_pct: 100.0
+  max_asset_exposure_pct: 50.0
+  max_strategy_exposure_pct: 50.0
+  daily_profit_target_pct: 2.0
+  daily_loss_limit_pct: 3.0
   strategy_management:
-    consecutive_loss_limit: 3           # Pause strategy after N consecutive losses
+    consecutive_loss_limit: 3
     cooldown:
       enabled: true
       value: 4
-      unit: hours                       # Cooldown duration
-    break_even_resets_losses: true      # Break-even trades reset the loss counter
-
-  # ── Opportunity Score (Prompt 05) ───────────────────────────────────────────
+      unit: hours
+    break_even_resets_losses: true
   opportunity_score:
     enabled: true
-    minimum_score: 40.0                 # Reject signals with score below this
-    version: "1.0.0"
+    minimum_score: 40.0
+    version: 1.0.0
     components:
       trend_alignment:
         weight: 20.0
@@ -194,22 +83,12 @@ risk:
       multi_timeframe:
         weight: 10.0
         enabled: true
-
-# ── Position Sizing (Prompt 03) ───────────────────────────────────────────────
-#
-# mode options:
-#   risk_based   — size from equity × risk_per_trade_pct / stop_distance
-#   fixed        — use a fixed_quantity per trade (for testing only)
 position_sizing:
   mode: risk_based
-  fixed_quantity: null                  # Only used when mode = 'fixed'
-
-# ── Logging ─────────────────────────────────────────────────────────────────
+  fixed_quantity: null
 logging:
   level: INFO
   format: console
-
-# ── Reporting (Prompt 06) ───────────────────────────────────────────────────
 reporting:
   enabled: true
   formats:
@@ -237,84 +116,62 @@ reporting:
     timeframes: []
   html:
     enabled: true
-
-# ── Robustness Research (Prompt 07) ─────────────────────────────────────────
-#
-# Walk-forward, sensitivity, regime analysis and robustness validation.
-#
-# IMPORTANT:
-#   run_type: DEVELOPMENT  → fast subset run for development/testing
-#   run_type: VALIDATION   → medium run for pre-submission checks
-#   run_type: FULL         → complete research run (required for acceptance)
-#
-# NOTE: strategy_selection is DISABLED by default to prevent accidental
-# overfitting. Only enable if you explicitly intend to test selection logic.
-#
 robustness:
-  enabled: false                        # Set to true to run P07 analysis
-
-  run_type: DEVELOPMENT                 # DEVELOPMENT | VALIDATION | FULL
-
+  enabled: false
+  run_type: DEVELOPMENT
   walk_forward:
     enabled: true
-    mode: rolling                       # rolling | expanding
+    mode: rolling
     train_period:
-      value: 180
+      value: 14
       unit: days
     validation_period:
-      value: 30
+      value: 5
       unit: days
     test_period:
-      value: 30
+      value: 5
       unit: days
     step:
-      value: 30
+      value: 3
       unit: days
-
   sensitivity:
     enabled: true
-    # Risk-reward neighborhood (baseline is risk.risk_reward_ratio above)
-    # NOT optimization — tests stability only
-    risk_reward_ratios: [2.0, 2.5, 3.0, 3.5, 4.0]
-    # Cost multipliers (1.0 = baseline, 2.0 = double all fees/slippage)
-    cost_multipliers: [1.0, 1.25, 1.5, 2.0]
-    # Opportunity score thresholds (only if risk.opportunity_score.enabled=true)
-    score_thresholds: [40.0, 50.0, 60.0, 70.0]
-
+    risk_reward_ratios:
+    - 2.0
+    - 2.5
+    - 3.0
+    - 3.5
+    - 4.0
+    cost_multipliers:
+    - 1.0
+    - 1.25
+    - 1.5
+    - 2.0
+    score_thresholds:
+    - 40.0
+    - 50.0
+    - 60.0
+    - 70.0
   regime:
     enabled: true
     trend:
-      ma_period: 50                     # MA period for trend direction
-      slope_threshold_pct: 0.5          # % distance from MA to classify trend
+      ma_period: 50
+      slope_threshold_pct: 0.5
     volatility:
-      atr_period: 14                    # ATR period for volatility regime
-      low_threshold_pct: 1.0            # ATR/price below this → LOW_VOL
-      high_threshold_pct: 3.0           # ATR/price above this → HIGH_VOL
-
+      atr_period: 14
+      low_threshold_pct: 1.0
+      high_threshold_pct: 3.0
   minimum_sample_sizes:
-    trades: 30                          # Warn if fewer trades than this
-    oos_windows: 5                      # Warn if fewer OOS windows than this
-
+    trades: 30
+    oos_windows: 5
   leave_one_out:
-    assets: true                        # Leave-one-asset-out analysis
-    strategies: false                   # Leave-one-strategy-out (expensive)
-    periods: false                      # Leave-one-period-out (expensive)
-
-  strategy_selection: false             # DISABLED — prevents accidental overfitting
-
-# ── Paper Trading (Prompt 08) ────────────────────────────────────────────────
-#
-# Paper trading simulates decisions using public Binance market data.
-# NO real orders are placed. NO trading credentials are required or used.
-#
-# safety.allow_real_orders MUST remain false.
-# Set enabled: true to activate a paper session.
-#
+    assets: true
+    strategies: false
+    periods: false
+  strategy_selection: false
 paper_trading:
-  enabled: false                        # Set true to run a paper session
-
-  initial_balance: 10000.0             # Simulated capital (NOT a real money recommendation)
-
+  enabled: false
+  initial_balance: 10000.0
   market_data:
     provider: binance_public
     mode: polling
@@ -323,25 +180,20 @@ paper_trading:
     retry_delay_seconds: 2.0
     request_timeout_seconds: 10.0
     warmup_candles: 300
-
   session:
     auto_start: false
     resume_enabled: true
-    max_duration_minutes: null          # null = run until manual stop
-
+    max_duration_minutes: null
   safety:
-    allow_real_orders: false            # MUST remain false — prevents real orders
-    require_paper_mode: true            # Reject LIVE execution mode
-
+    allow_real_orders: false
+    require_paper_mode: true
   persistence:
     checkpoint_interval_seconds: 30
     results_dir: results/paper
-
   reporting:
     generate_trade_charts: true
     generate_session_report: true
     generate_daily_report: true
-
   drift:
     enabled: true
     signal_frequency_change_pct: 50.0
@@ -349,9 +201,8 @@ paper_trading:
     rejection_rate_change_pct: 50.0
     cost_change_pct: 40.0
     min_paper_trades_for_drift: 20
-
   replay:
-    enabled: false                      # Set true to run deterministic replay
-    speed: 0.0                          # 0.0 = as fast as possible
-    dataset_start: null                 # null = use backtest.start_date
-    dataset_end: null                   # null = use backtest.end_date
+    enabled: false
+    speed: 0.0
+    dataset_start: null
+    dataset_end: null

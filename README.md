@@ -42,7 +42,9 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current development status.
 # 1. Clone / navigate to the project
 cd ai-crypto-trading
 
-# 2. Install dependencies
+# 2. Create virtual environment and install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install -e ".[dev]"
 
 # 3. Run tests
