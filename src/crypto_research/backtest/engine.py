@@ -75,6 +75,7 @@ from crypto_research.core.domain import (
     PositionSizingMode,
     RejectionReason,
     Trade,
+    SignalDirection,
 )
 from crypto_research.core.exceptions import DataIntegrityError, ExecutionError
 from crypto_research.data.catalog import DataCatalog
@@ -202,53 +203,60 @@ class BacktestEngine:
             # a. Daily reset
             self._accountant.check_and_reset_daily(ts)
 
-            # b. Update position prices using last known close
-            self._update_position_prices(primary_symbol, primary_tf, ts)
+            current_prices = {}
+            for symbol in bt_cfg.symbols:
+                # b. Update position prices using last known close
+                self._update_position_prices(symbol, primary_tf, ts)
 
-            # c. Get current candle OHLC for exit simulation
-            candle_row = self._get_candle_at(primary_symbol, primary_tf, ts)
-            if candle_row is None:
-                continue
+                # c. Get current candle OHLC for exit simulation
+                candle_row = self._get_candle_at(symbol, primary_tf, ts)
+                if candle_row is None:
+                    continue
 
-            candle_open = float(candle_row["open"])
-            candle_high = float(candle_row["high"])
-            candle_low = float(candle_row["low"])
-            candle_close = float(candle_row["close"])
+                candle_open = float(candle_row["open"])
+                candle_high = float(candle_row["high"])
+                candle_low = float(candle_row["low"])
+                candle_close = float(candle_row["close"])
+                current_prices[symbol] = candle_close
 
-            # d. Check exits on all open positions
-            self._process_exits(
-                ts, candle_open, candle_high, candle_low, candle_close, run_id
-            )
+                # d. Check exits on all open positions for this symbol
+                self._process_exits_for_symbol(
+                    ts, symbol, candle_open, candle_high, candle_low, candle_close, run_id
+                )
 
-            # e. Execute pending entry from previous candle signal
-            self._execute_pending_entry(ts, primary_symbol, candle_open)
+                # e. Execute pending entry from previous candle signal
+                self._execute_pending_entry(ts, symbol, candle_open)
 
             # f. Equity curve snapshot
-            current_prices = {primary_symbol: candle_close}
             self._accountant.snapshot_equity_curve(ts, current_prices)
 
             # g. Call strategy (receives CLOSED candles up to ts)
-            view = self._data_provider.get_view(ts)
-            signal = strategy.on_candle(
-                close_price=candle_close,
-                symbol=primary_symbol,
-                timeframe=primary_tf,
-                timestamp=ts,
-            )
+            for symbol in bt_cfg.symbols:
+                candle_row = self._get_candle_at(symbol, primary_tf, ts)
+                if candle_row is None:
+                    continue
+                candle_close = float(candle_row["close"])
+                
+                signal = strategy.on_candle(
+                    close_price=candle_close,
+                    symbol=symbol,
+                    timeframe=primary_tf,
+                    timestamp=ts,
+                )
 
-            if signal is None:
-                continue
+                if signal is None:
+                    continue
 
-            # h. Signal received → risk gate → size → queue pending entry
-            self._process_signal(
-                signal=signal,
-                symbol=primary_symbol,
-                timeframe=primary_tf,
-                strategy_name=strategy_name,
-                close_price=candle_close,
-                signal_timestamp=ts,
-                run_id=run_id,
-            )
+                # h. Signal received → risk gate → size → queue pending entry
+                self._process_signal(
+                    signal=signal,
+                    symbol=symbol,
+                    timeframe=primary_tf,
+                    strategy_name=strategy_name,
+                    close_price=candle_close,
+                    signal_timestamp=ts,
+                    run_id=run_id,
+                )
 
         # 5. End of data — close remaining open positions
         self._close_remaining_positions(run_id)
@@ -310,7 +318,7 @@ class BacktestEngine:
         self._accountant = PortfolioAccountant(
             initial_balance=cfg.capital.initial_balance
         )
-        self._risk_gate = RiskGate(cfg.risk, allow_short=False)
+        self._risk_gate = RiskGate(cfg.risk, allow_short=True)
 
         # Reset mutable state
         self._open_positions = {}
@@ -378,9 +386,10 @@ class BacktestEngine:
     # Exit processing
     # ------------------------------------------------------------------
 
-    def _process_exits(
+    def _process_exits_for_symbol(
         self,
         ts: datetime,
+        symbol: str,
         candle_open: float,
         candle_high: float,
         candle_low: float,
@@ -391,6 +400,8 @@ class BacktestEngine:
         positions_to_close: list[tuple[Position, Fill, ExitReason]] = []
 
         for position in list(self._open_positions.values()):
+            if position.asset != symbol:
+                continue
             exit_fill, exit_reason = self._simulator.check_and_simulate_exits(
                 position=position,
                 candle_open=candle_open,
@@ -494,7 +505,11 @@ class BacktestEngine:
             logger.warning("Signal missing stop_price — rejected", symbol=symbol)
             return
 
-        side = PositionSide.LONG  # Only LONG in Prompt 03
+        if direction == SignalDirection.SHORT:
+            side = PositionSide.SHORT
+        else:
+            side = PositionSide.LONG
+            
         entry_price_estimate = close_price  # For risk check, use close as estimate
 
         # Compute position size
@@ -552,10 +567,11 @@ class BacktestEngine:
             return
 
         # Create order and queue for NEXT candle (signal timing rule)
+        order_side = OrderSide.SELL if side == PositionSide.SHORT else OrderSide.BUY
         order = Order.create(
             timestamp=signal_timestamp,
             asset=symbol,
-            side=OrderSide.BUY,
+            side=order_side,
             order_type=OrderType.MARKET,
             quantity=quantity,
             strategy_name=strategy_name,
@@ -569,7 +585,7 @@ class BacktestEngine:
         self._pending_entry[symbol] = (order, signal_timestamp)
 
         # Store risk_amount on the order for the position
-        order._risk_amount = risk_amount  # type: ignore[attr-defined]
+        object.__setattr__(order, '_risk_amount', risk_amount)
 
         self._record_event(
             EventType.SIGNAL_RECEIVED,
@@ -594,12 +610,14 @@ class BacktestEngine:
 
         order, signal_ts = self._pending_entry.pop(symbol)
 
+        position_side = PositionSide.SHORT if order.side == OrderSide.SELL else PositionSide.LONG
+
         # Simulate market entry at this candle's open
         entry_fill = self._simulator.simulate_market_entry(
             order_id=order.order_id,
             timestamp=ts,
             symbol=symbol,
-            side=PositionSide.LONG,
+            side=position_side,
             quantity=order.quantity,
             candle_open=candle_open,
         )
@@ -608,7 +626,7 @@ class BacktestEngine:
 
         position = Position.create(
             asset=symbol,
-            side=PositionSide.LONG,
+            side=position_side,
             entry_fill=entry_fill,
             strategy_name=order.strategy_name,
             run_id=order.run_id,
